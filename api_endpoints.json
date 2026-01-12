@@ -1,16 +1,65 @@
 {
-  "gpt-3.5-turbo": {
-    "model_name": "gpt-3.5-turbo",
+  "claude-sonnet-4-5-20250929": {
+    "model_name": "claude-sonnet-4-5-20250929",
     "api_type": "openai",
-    "api_base": "https://api.openai.com/v1",
-    "api_key": ,
+    "api_base": "",
+    "api_key": "",
     "anony_only": true
   },
-  "gpt-4o": {
-    "model_name": "gpt-4o",
+  "gpt-oss-120b-medium": {
+    "model_name": "gpt-oss-120b-medium",
     "api_type": "openai",
-    "api_base": "https://api.openai.com/v1",
-    "api_key": ,
+    "api_base": "",
+    "api_key": "",
+    "anony_only": true
+  },
+  "gemini-3-pro-preview": {
+    "model_name": "gemini-3-pro-preview",
+    "api_type": "openai",
+    "api_base": "",
+    "api_key": "",
+    "anony_only": true
+  }，
+  "kimi-k2": {
+    "model_name": "kimi-k2",
+    "api_type": "openai",
+    "api_base": "",
+    "api_key": "",
+    "anony_only": true
+  },
+  "deepseek-v3-2": {
+    "model_name": "deepseekv3.2",
+    "api_type": "openai",
+    "api_base": "",
+    "api_key": "",
+    "anony_only": true
+  },
+  "deepseek-v3-1-terminus": {
+    "model_name": "deepseek-v3.1-terminus",
+    "api_type": "openai",
+    "api_base": "",
+    "api_key": "",
+    "anony_only": true
+  },
+  "minimax-m2-1": {
+    "model_name": "minimax-m2.1",
+    "api_type": "openai",
+    "api_base": "",
+    "api_key": "",
+    "anony_only": true
+  },
+  "qwen3-coder-plus": {
+    "model_name": "qwen3-coder-plus",
+    "api_type": "openai",
+    "api_base": "",
+    "api_key": "",
+    "anony_only": true
+  },
+  "qwen3-coder-flash": {
+    "model_name": "qwen3-coder-flash",
+    "api_type": "openai",
+    "api_base": "",
+    "api_key": "",
     "anony_only": true
   }
 }
