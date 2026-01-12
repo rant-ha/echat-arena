@@ -7,6 +7,10 @@ WORKDIR /app
 # 安装 git (fschat 安装时可能需要)
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
+# 修复：先强制安装旧版 huggingface_hub，防止版本冲突
+# 0.23.0 版本确定包含 HfFolder
+RUN pip install --no-cache-dir "huggingface_hub==0.23.0"
+
 # 安装 FastChat 的 WebUI 组件
 # 我们直接从官方源安装，这样你不需要上传那几百兆的源代码
 RUN pip install --no-cache-dir "fschat[webui]"
