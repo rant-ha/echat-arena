@@ -1,0 +1,16 @@
+{
+  "gpt-3.5-turbo": {
+    "model_name": "gpt-3.5-turbo",
+    "api_type": "openai",
+    "api_base": "https://api.openai.com/v1",
+    "api_key": ,
+    "anony_only": true
+  },
+  "gpt-4o": {
+    "model_name": "gpt-4o",
+    "api_type": "openai",
+    "api_base": "https://api.openai.com/v1",
+    "api_key": ,
+    "anony_only": true
+  }
+}
