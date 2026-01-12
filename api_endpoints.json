@@ -19,7 +19,7 @@
     "api_base": "",
     "api_key": "",
     "anony_only": true
-  }，
+  },
   "kimi-k2": {
     "model_name": "kimi-k2",
     "api_type": "openai",
