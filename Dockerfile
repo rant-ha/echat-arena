@@ -1,18 +1,21 @@
-# 使用官方 Python 环境
 FROM python:3.9-slim
-
-# 设置工作目录
 WORKDIR /app
 
-# 安装 git (fschat 安装时可能需要)
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+# 1. 安装基础工具 
+# 增加 build-essential，因为 psutil 有时需要编译 C 扩展
+RUN apt-get update && apt-get install -y \
+    git \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# 修复：先强制安装旧版 huggingface_hub，防止版本冲突
-# 0.23.0 版本确定包含 HfFolder
+# 2. 修复依赖兼容性 (huggingface_hub)
 RUN pip install --no-cache-dir "huggingface_hub==0.23.0"
 
-# 安装 FastChat 的 WebUI 组件
-# 我们直接从官方源安装，这样你不需要上传那几百兆的源代码
+# 3. 修复缺失模块 (psutil)
+# 显式单独安装它，确保它一定存在
+RUN pip install --no-cache-dir psutil
+
+# 4. 安装 FastChat WebUI
 RUN pip install --no-cache-dir "fschat[webui]"
 
 # 复制当前目录下的所有文件到容器中
