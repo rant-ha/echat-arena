@@ -1,0 +1,15 @@
+{
+  "name": "fastchat-arena-docker",
+  "description": "FastChat Arena using Docker Mode",
+  "stack": "container",
+  "env": {
+    "OPENAI_API_KEY": {
+      "description": "你的 OpenAI API Key",
+      "required": true
+    },
+    "OPENAI_API_BASE": {
+      "description": "API 中转地址 (可选)",
+      "required": false
+    }
+  }
+}
