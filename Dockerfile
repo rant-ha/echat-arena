@@ -1,8 +1,8 @@
 FROM python:3.9-slim
 WORKDIR /app
 
-# 1. 安装基础工具 
-# 增加 build-essential，因为 psutil 有时需要编译 C 扩展
+# 1. 安装基础工具
+# build-essential 用于编译 psutil 等扩展
 RUN apt-get update && apt-get install -y \
     git \
     build-essential \
@@ -12,20 +12,16 @@ RUN apt-get update && apt-get install -y \
 RUN pip install --no-cache-dir "huggingface_hub==0.23.0"
 
 # 3. 修复缺失模块 (psutil)
-# 显式单独安装它，确保它一定存在
 RUN pip install --no-cache-dir psutil
 
-# 4. 安装 FastChat WebUI
+# 4. 【新增】安装 CPU 版 PyTorch
+# 必须使用 --index-url 指定下载 CPU 版本，否则体积太大无法部署
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# 5. 安装 FastChat WebUI
 RUN pip install --no-cache-dir "fschat[webui]"
 
-# 复制当前目录下的所有文件到容器中
 COPY . .
-
-# 设置环境变量，确保 Python 输出直接打印到日志
 ENV PYTHONUNBUFFERED=1
-
-# 赋予启动脚本执行权限
 RUN chmod +x start.sh
-
-# 启动命令
 CMD ["./start.sh"]
