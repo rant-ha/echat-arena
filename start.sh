@@ -1,14 +1,46 @@
 #!/bin/bash
 
-# 后台启动 Controller
+# ==========================================
+# 自动注入配置脚本
+# 功能：读取 Heroku 环境变量，覆盖 json 文件里的配置
+# ==========================================
+python3 -c "
+import os, json
+
+# 配置文件路径
+config_path = 'api_endpoints.json'
+
+# 从环境变量获取配置
+api_base = os.environ.get('OPENAI_API_BASE')
+api_key = os.environ.get('OPENAI_API_KEY')
+
+if os.path.exists(config_path):
+    with open(config_path, 'r') as f:
+        data = json.load(f)
+    
+    # 遍历所有模型，注入环境变量
+    # 这样无论是 gpt-3.5 还是 gpt-4，都会用同一个中转地址和 key
+    for model_name, config in data.items():
+        if api_base:
+            config['api_base'] = api_base
+            print(f'注入 API_BASE 到 {model_name}')
+        if api_key:
+            config['api_key'] = api_key
+            print(f'注入 API_KEY 到 {model_name}')
+
+    # 写回文件
+    with open(config_path, 'w') as f:
+        json.dump(data, f, indent=2)
+"
+# ==========================================
+
+# 1. 启动 Controller (后台运行)
 python3 -m fastchat.serve.controller --host 127.0.0.1 --port 21001 &
 
 # 等待 Controller 启动
 sleep 5
 
-# 启动 Web Server (多模型竞技场模式)
-# --register-api-endpoint-file 读取你刚才的 json 配置
-# $PORT 是 Heroku 自动分配的
+# 2. 启动 Web Server
 python3 -m fastchat.serve.gradio_web_server_multi \
     --controller-url http://127.0.0.1:21001 \
     --register-api-endpoint-file api_endpoints.json \
