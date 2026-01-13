@@ -1,0 +1,5 @@
+
+# local credentials / caches
+.codex/auth.json
+__pycache__/
+FastChat/

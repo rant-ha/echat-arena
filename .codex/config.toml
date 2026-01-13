@@ -1,0 +1,8 @@
+model = "gpt-5-codex"
+model_provider = "clip"
+preferred_auth_method = "apikey"
+
+[model_providers.clip]
+name = "clip"
+base_url = "https://clip2.ranai.me/v1"
+wire_api = "responses"

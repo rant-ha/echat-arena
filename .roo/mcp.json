@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ]
+    },
+    "google-ai-search": {
+      "command": "npx",
+      "args": [
+        "google-ai-mode-mcp@latest"
+      ]
+    }
+  }
+}

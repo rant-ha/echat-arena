@@ -40,10 +40,8 @@ python3 -m fastchat.serve.controller --host 127.0.0.1 --port 21001 &
 # 等待 Controller 启动
 sleep 5
 
-# 2. 启动 Web Server
-python3 -m fastchat.serve.gradio_web_server_multi \
-    --controller-url http://127.0.0.1:21001 \
-    --register-api-endpoint-file api_endpoints.json \
+# 2. 启动 FastAPI Arena API（替换原 Gradio 前端）
+uvicorn app:app \
     --host 0.0.0.0 \
     --port $PORT \
-    --share
+    --workers 1

@@ -1,14 +1,58 @@
 {
-  "name": "fastchat-arena-docker",
-  "description": "FastChat Arena using Docker Mode",
+  "name": "empathy-arena-backend",
+  "description": "Empathy Arena backend (FastAPI + Container Stack)",
   "stack": "container",
   "env": {
-    "OPENAI_API_KEY": {
-      "description": "你的 OpenAI API Key",
+    "OPENAI_API_BASE": {
+      "description": "OpenAI-compatible API base (e.g. https://api.openai.com)",
       "required": true
     },
-    "OPENAI_API_BASE": {
-      "description": "API 中转地址 (可选)",
+    "OPENAI_API_KEY": {
+      "description": "OpenAI-compatible API key",
+      "required": true
+    },
+
+    "REPLY_MODEL_NAME": {
+      "description": "Single-model / controlled variable: underlying model name used by BOTH arms",
+      "required": false
+    },
+    "REPLY_API_BASE": {
+      "description": "Optional override for reply model API base (defaults to OPENAI_API_BASE)",
+      "required": false
+    },
+    "REPLY_API_KEY": {
+      "description": "Optional override for reply model API key (defaults to OPENAI_API_KEY)",
+      "required": false
+    },
+
+    "ALLOWED_ORIGINS": {
+      "description": "CORS allowlist. Use your Vercel domain(s) in production; * for dev.",
+      "required": false
+    },
+
+    "SUPABASE_URL": {
+      "description": "Supabase project URL",
+      "required": false
+    },
+    "SUPABASE_SERVICE_KEY": {
+      "description": "Supabase service_role key (server-side only)",
+      "required": false
+    },
+
+    "ARCHIVE_ENABLED": {
+      "description": "Enable scheduled archive: 1=true, 0=false",
+      "required": false
+    },
+    "ARCHIVE_INTERVAL_HOURS": {
+      "description": "Archive interval in hours",
+      "required": false
+    },
+    "DRIVE_CREDS_JSON": {
+      "description": "Google Drive service account JSON (single-line string)",
+      "required": false
+    },
+    "DRIVE_FOLDER_ID": {
+      "description": "Target Google Drive folder ID",
       "required": false
     }
   }
