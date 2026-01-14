@@ -21,8 +21,16 @@ function parseAllowedDomains(raw: string | undefined): string[] {
 function isEmailDomainAllowed(email: string, allowed: string[]): boolean {
   const at = email.lastIndexOf("@");
   if (at < 0) return false;
-  const domain = email.slice(at + 1).toLowerCase();
-  return allowed.some((suffix) => domain.endsWith(suffix));
+
+  const domain = email.slice(at + 1).trim().toLowerCase();
+  if (!domain) return false;
+
+  const normalizedAllowed = allowed
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+    .map((s) => (s.startsWith(".") ? s.slice(1) : s));
+
+  return normalizedAllowed.some((s) => domain === s || domain.endsWith(`.${s}`));
 }
 
 export default function RegisterPage() {
