@@ -47,10 +47,10 @@ export async function middleware(req: NextRequest) {
 
   const isPublic = PUBLIC_PATHS.has(pathname);
 
-  // 已登录：不允许访问 login/register，重定向到首页
+  // 已登录：不允许访问 login/register，重定向到对战页
   if (user && isPublic) {
     const url = req.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = "/battle";
     return NextResponse.redirect(url);
   }
 

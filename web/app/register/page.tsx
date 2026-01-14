@@ -65,7 +65,7 @@ export default function RegisterPage() {
       if (authError) throw authError;
 
       // If email confirmation is enabled, user may need to confirm.
-      router.replace("/");
+      router.replace("/battle");
       router.refresh();
     } catch (err: any) {
       setError(err?.message || "注册失败");

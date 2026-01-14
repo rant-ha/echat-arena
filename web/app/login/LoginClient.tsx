@@ -28,7 +28,11 @@ export default function LoginClient(props: { nextPath: string }) {
       });
       if (authError) throw authError;
 
-      router.replace(nextPath);
+      const redirectTo = nextPath?.startsWith("/") && !nextPath.startsWith("//")
+        ? nextPath
+        : "/battle";
+
+      router.replace(redirectTo);
       router.refresh();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "登录失败";
