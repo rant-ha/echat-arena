@@ -3,29 +3,52 @@
 import { motion } from "framer-motion";
 import { cn } from "./ui";
 
+export type ResponseCardReveal = {
+  label?: string;
+  subtitle?: string;
+};
+
+export type AiJudgeScores = {
+  empathy_score?: number;
+  emotional_safety_score?: number;
+  helpfulness_score?: number;
+  comment?: string;
+};
+
+function totalAiScore(s: AiJudgeScores | null | undefined): number | null {
+  if (!s) return null;
+  const a = typeof s.empathy_score === "number" ? s.empathy_score : null;
+  const b =
+    typeof s.emotional_safety_score === "number" ? s.emotional_safety_score : null;
+  const c = typeof s.helpfulness_score === "number" ? s.helpfulness_score : null;
+  if (a === null || b === null || c === null) return null;
+  return a + b + c;
+}
+
 interface ResponseCardProps {
   side: "left" | "right";
-  anonymousLabel: string; // "Anonymous A" or "Anonymous B"
-  revealedLabel?: string; // "Baseline" or "Strategy: warmth"
+  anonymousLabel: string;
+  revealed?: ResponseCardReveal;
   content: string;
   isStreaming: boolean;
   isRevealed: boolean;
   isWinner?: boolean;
-  aiScore?: number | null;
-  aiScoreLoading?: boolean;
+  judgeScores?: AiJudgeScores | null;
+  judgeLoading?: boolean;
 }
 
 export function ResponseCard({
-  side,
   anonymousLabel,
-  revealedLabel,
+  revealed,
   content,
   isStreaming,
   isRevealed,
   isWinner,
-  aiScore,
-  aiScoreLoading,
+  judgeScores,
+  judgeLoading,
 }: ResponseCardProps) {
+  const total = totalAiScore(judgeScores);
+
   return (
     <div className="perspective-1000 h-full w-full">
       <motion.div
@@ -54,7 +77,7 @@ export function ResponseCard({
             {isStreaming && (
               <span className="flex items-center gap-1.5 text-xs text-primary">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
-                Streaming...
+                Streaming…
               </span>
             )}
           </div>
@@ -83,12 +106,19 @@ export function ResponseCard({
             transform: "rotateY(180deg)",
           }}
         >
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-foreground/90">
-              {revealedLabel || anonymousLabel}
-            </h3>
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="truncate text-lg font-semibold text-foreground/90">
+                {revealed?.label || anonymousLabel}
+              </h3>
+              {revealed?.subtitle ? (
+                <p className="mt-1 truncate text-xs text-muted">
+                  {revealed.subtitle}
+                </p>
+              ) : null}
+            </div>
             {isWinner === true && (
-              <span className="rounded-full bg-green-500/20 px-2 py-0.5 text-xs font-medium text-green-400">
+              <span className="shrink-0 rounded-full bg-green-500/20 px-2 py-0.5 text-xs font-medium text-green-400">
                 Winner
               </span>
             )}
@@ -100,21 +130,26 @@ export function ResponseCard({
             </div>
           </div>
 
-          {/* AI Score section */}
           <div className="mt-3 border-t border-border/50 pt-3">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-muted">AI Judge Score</span>
-              {aiScoreLoading ? (
+              <span className="text-muted">AI Judge</span>
+              {judgeLoading ? (
                 <span className="flex items-center gap-1 text-muted">
                   <span className="h-3 w-3 animate-spin rounded-full border border-primary/50 border-t-primary" />
-                  Loading...
+                  Scoring…
                 </span>
-              ) : aiScore !== null && aiScore !== undefined ? (
-                <span className="font-mono text-primary">{aiScore}/10</span>
+              ) : total !== null ? (
+                <span className="font-mono text-primary">{total} / 15</span>
               ) : (
                 <span className="text-muted">—</span>
               )}
             </div>
+
+            {judgeScores?.comment ? (
+              <p className="mt-2 line-clamp-3 text-xs text-muted">
+                {judgeScores.comment}
+              </p>
+            ) : null}
           </div>
         </div>
       </motion.div>

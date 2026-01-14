@@ -2,19 +2,42 @@
 
 import { useCallback, useRef, useState } from "react";
 
-// SSE event data types
+export type BattleStreamSide = "meta" | "left" | "right" | "error";
+
 export interface BattleMeta {
   session_id: string;
-  left_label: string; // e.g. "Baseline"
-  right_label: string; // e.g. "Strategy: warmth"
-  left_model?: string;
-  right_model?: string;
+  left_model: string;
+  right_model: string;
+  template_id?: string | null;
+  strategy_name?: string | null;
+  template_emotion?: string;
+  template_intensity?: string;
+  emotion?: string;
+  intensity?: string;
+  support_type?: string;
+  classifier_comment?: string;
+  ts?: string;
 }
 
-export interface StreamChunk {
-  side: "meta" | "left" | "right";
-  content?: string;
-  meta?: BattleMeta;
+export interface BattleStreamFrame {
+  side: BattleStreamSide;
+  delta?: string;
+  finish?: boolean;
+  error?: string;
+
+  // meta frame fields
+  session_id?: string;
+  left_model?: string;
+  right_model?: string;
+  template_id?: string | null;
+  strategy_name?: string | null;
+  template_emotion?: string;
+  template_intensity?: string;
+  emotion?: string;
+  intensity?: string;
+  support_type?: string;
+  classifier_comment?: string;
+  ts?: string;
 }
 
 export interface BattleState {
@@ -22,6 +45,8 @@ export interface BattleState {
   meta: BattleMeta | null;
   leftText: string;
   rightText: string;
+  leftDone: boolean;
+  rightDone: boolean;
   error: string | null;
 }
 
@@ -30,18 +55,48 @@ const initialState: BattleState = {
   meta: null,
   leftText: "",
   rightText: "",
+  leftDone: false,
+  rightDone: false,
   error: null,
 };
 
-/**
- * useBattleStream - Hook for handling SSE streaming from /api/proxy/arena/battle
- *
- * Parses SSE events with format:
- *   data: {"side": "meta", "meta": {...}}
- *   data: {"side": "left", "content": "Hello"}
- *   data: {"side": "right", "content": "Hi"}
- *   data: [DONE]
- */
+function parseSseEventBlock(block: string): string[] {
+  const lines = block.split(/\r?\n/);
+  const dataLines: string[] = [];
+  for (const line of lines) {
+    if (!line) continue;
+    if (line.startsWith(":")) continue; // comment/keepalive
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trimStart());
+    }
+  }
+  if (dataLines.length === 0) return [];
+  // SSE spec: multiple data: lines concatenate with "\n"
+  return [dataLines.join("\n")];
+}
+
+function coerceMeta(frame: BattleStreamFrame): BattleMeta | null {
+  const session_id = typeof frame.session_id === "string" ? frame.session_id : "";
+  const left_model = typeof frame.left_model === "string" ? frame.left_model : "";
+  const right_model = typeof frame.right_model === "string" ? frame.right_model : "";
+  if (!session_id || !left_model || !right_model) return null;
+
+  return {
+    session_id,
+    left_model,
+    right_model,
+    template_id: frame.template_id ?? null,
+    strategy_name: frame.strategy_name ?? null,
+    template_emotion: frame.template_emotion,
+    template_intensity: frame.template_intensity,
+    emotion: frame.emotion,
+    intensity: frame.intensity,
+    support_type: frame.support_type,
+    classifier_comment: frame.classifier_comment,
+    ts: frame.ts,
+  };
+}
+
 export function useBattleStream() {
   const [state, setState] = useState<BattleState>(initialState);
   const abortRef = useRef<AbortController | null>(null);
@@ -54,11 +109,19 @@ export function useBattleStream() {
     setState(initialState);
   }, []);
 
-  const startBattle = useCallback(async (prompt: string) => {
-    // Abort any existing stream
+  const abort = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort();
+      abortRef.current = null;
     }
+    setState((prev) => ({
+      ...prev,
+      status: prev.status === "streaming" ? "done" : prev.status,
+    }));
+  }, []);
+
+  const startBattle = useCallback(async (prompt: string) => {
+    if (abortRef.current) abortRef.current.abort();
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -68,6 +131,8 @@ export function useBattleStream() {
       meta: null,
       leftText: "",
       rightText: "",
+      leftDone: false,
+      rightDone: false,
       error: null,
     });
 
@@ -90,76 +155,86 @@ export function useBattleStream() {
       }
 
       const reader = res.body?.getReader();
-      if (!reader) {
-        throw new Error("No response body");
-      }
+      if (!reader) throw new Error("No response body");
 
       const decoder = new TextDecoder();
       let buffer = "";
+
+      const handleFrame = (frame: BattleStreamFrame) => {
+        setState((prev) => {
+          if (frame.side === "error") {
+            return {
+              ...prev,
+              status: "error",
+              error: frame.error || "Unknown error",
+            };
+          }
+
+          if (frame.side === "meta") {
+            const meta = coerceMeta(frame);
+            return meta ? { ...prev, meta } : prev;
+          }
+
+          if (frame.side === "left") {
+            const leftText = frame.delta ? prev.leftText + frame.delta : prev.leftText;
+            const leftDone = prev.leftDone || !!frame.finish;
+            const status = leftDone && prev.rightDone ? "done" : prev.status;
+            return { ...prev, leftText, leftDone, status };
+          }
+
+          if (frame.side === "right") {
+            const rightText = frame.delta ? prev.rightText + frame.delta : prev.rightText;
+            const rightDone = prev.rightDone || !!frame.finish;
+            const status = prev.leftDone && rightDone ? "done" : prev.status;
+            return { ...prev, rightText, rightDone, status };
+          }
+
+          return prev;
+        });
+      };
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
+        buffer = buffer.replace(/\r\n/g, "\n");
 
-        // Parse SSE lines
-        const lines = buffer.split("\n");
-        // Keep incomplete line in buffer
-        buffer = lines.pop() || "";
+        let idx = buffer.indexOf("\n\n");
+        while (idx !== -1) {
+          const block = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
 
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith(":")) {
-            // Empty line or comment
-            continue;
-          }
-
-          if (trimmed.startsWith("data:")) {
-            const data = trimmed.slice(5).trim();
-
+          for (const data of parseSseEventBlock(block)) {
+            if (!data) continue;
             if (data === "[DONE]") {
-              setState((prev) => ({ ...prev, status: "done" }));
+              setState((prev) => ({
+                ...prev,
+                status: prev.status === "error" ? "error" : "done",
+              }));
               continue;
             }
-
             try {
-              const chunk: StreamChunk = JSON.parse(data);
-              handleChunk(chunk);
+              const frame = JSON.parse(data) as BattleStreamFrame;
+              if (frame && typeof frame === "object" && typeof frame.side === "string") {
+                handleFrame(frame);
+              }
             } catch {
-              // Might be partial JSON, try to accumulate
-              // For now, log and skip
-              console.warn("Failed to parse SSE data:", data);
+              // ignore malformed frames
             }
           }
+
+          idx = buffer.indexOf("\n\n");
         }
       }
 
-      // Final flush
-      if (buffer.trim()) {
-        const trimmed = buffer.trim();
-        if (trimmed.startsWith("data:")) {
-          const data = trimmed.slice(5).trim();
-          if (data !== "[DONE]") {
-            try {
-              const chunk: StreamChunk = JSON.parse(data);
-              handleChunk(chunk);
-            } catch {
-              console.warn("Failed to parse final SSE data:", data);
-            }
-          }
-        }
-      }
-
+      // If stream ends without explicit finish frames, mark done best-effort.
       setState((prev) => ({
         ...prev,
         status: prev.status === "error" ? "error" : "done",
       }));
     } catch (err) {
-      if (controller.signal.aborted) {
-        // Intentional abort, not an error
-        return;
-      }
+      if (controller.signal.aborted) return;
       const message = err instanceof Error ? err.message : String(err);
       setState((prev) => ({
         ...prev,
@@ -167,41 +242,6 @@ export function useBattleStream() {
         error: message,
       }));
     }
-  }, []);
-
-  function handleChunk(chunk: StreamChunk) {
-    setState((prev) => {
-      switch (chunk.side) {
-        case "meta":
-          return {
-            ...prev,
-            meta: chunk.meta || null,
-          };
-        case "left":
-          return {
-            ...prev,
-            leftText: prev.leftText + (chunk.content || ""),
-          };
-        case "right":
-          return {
-            ...prev,
-            rightText: prev.rightText + (chunk.content || ""),
-          };
-        default:
-          return prev;
-      }
-    });
-  }
-
-  const abort = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
-    }
-    setState((prev) => ({
-      ...prev,
-      status: prev.status === "streaming" ? "done" : prev.status,
-    }));
   }, []);
 
   return {
