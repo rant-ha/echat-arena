@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@marsidev/react-turnstile": "^1.4.1",
     "@supabase/ssr": "^0.4.0",
     "@supabase/supabase-js": "^2.45.4",
     "framer-motion": "^11.0.0",

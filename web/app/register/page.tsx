@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import TurnstileCaptcha from "@/components/TurnstileCaptcha";
 import { createSupabaseBrowserClient } from "@/utils/supabase/client";
 import { Button, Card, ErrorText, Input, Label } from "@/components/ui";
 
@@ -43,8 +44,11 @@ export default function RegisterPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [captchaToken, setCaptchaToken] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const captchaEnabled = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -55,12 +59,18 @@ export default function RegisterPage() {
       return;
     }
 
+    if (captchaEnabled && !captchaToken) {
+      setError("请先完成验证码校验");
+      return;
+    }
+
     setLoading(true);
     try {
       const supabase = createSupabaseBrowserClient();
       const { error: authError } = await supabase.auth.signUp({
         email,
         password,
+        options: captchaEnabled ? { captchaToken } : undefined,
       });
       if (authError) throw authError;
 
@@ -107,6 +117,13 @@ export default function RegisterPage() {
                 required
               />
             </div>
+
+            {captchaEnabled ? (
+              <TurnstileCaptcha
+                onSuccess={(token) => setCaptchaToken(token)}
+                onReset={() => setCaptchaToken("")}
+              />
+            ) : null}
 
             {error ? <ErrorText>{error}</ErrorText> : null}
 
