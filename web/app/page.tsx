@@ -1,6 +1,8 @@
 import { createSupabaseServerClient } from "@/utils/supabase/server";
 import { HomeClient } from "@/app/HomeClient";
 
+export const dynamic = "force-dynamic";
+
 export default async function HomePage() {
   const supabase = createSupabaseServerClient();
   const {
