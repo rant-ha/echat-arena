@@ -356,6 +356,16 @@ def _load_json_file(path: str, default: Any) -> Any:
 _MODEL_CONFIG: Dict[str, Any] = _load_json_file(CONFIG_PATH, {})
 _TEMPLATES: List[Dict[str, Any]] = _load_json_file(TEMPLATE_PATH, [])
 
+# If a single reply model is configured, force all stages to use it by default.
+# Users can still override EMOTION_MODEL / EVAL_MODEL explicitly if they want.
+if REPLY_MODEL_NAME:
+    BASELINE_MODEL_ID = REPLY_MODEL_NAME
+    EMPATHY_MODEL_ID = REPLY_MODEL_NAME
+    if not EMOTION_MODEL_ID:
+        EMOTION_MODEL_ID = REPLY_MODEL_NAME
+    if not EVAL_MODEL_ID:
+        EVAL_MODEL_ID = REPLY_MODEL_NAME
+
 if not BASELINE_MODEL_ID or not EMPATHY_MODEL_ID:
     b, e = _pick_models_from_config(_MODEL_CONFIG)
     BASELINE_MODEL_ID = BASELINE_MODEL_ID or b
