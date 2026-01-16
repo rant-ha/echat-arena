@@ -106,7 +106,7 @@ export default function BattlePage() {
       }));
 
       try {
-        const res = await fetch("/api/proxy/arena/vote", {
+        const res = await fetch("/api/proxy/api/arena/vote", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
