@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Swords, RotateCcw } from "lucide-react";
 import { useBattleStream } from "@/hooks/useBattleStream";
 import { ResponseCard } from "@/components/ResponseCard";
@@ -9,6 +10,7 @@ import type { AiJudgeScores } from "@/components/ResponseCard";
 import { VoteButtons, VoteChoice } from "@/components/VoteButtons";
 import { PromptInput } from "@/components/PromptInput";
 import { cn } from "@/components/ui";
+import { createSupabaseBrowserClient } from "@/utils/supabase/client";
 
 type VoteResult = {
   revealed_left?: { arm?: string; model_id?: string };
@@ -51,6 +53,12 @@ function armLabel(arm?: string): "Baseline" | "Strategy" | null {
 }
 
 export default function BattlePage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+
+  const [bootstrappedFromQuery, setBootstrappedFromQuery] = useState(false);
+
   const {
     status,
     meta,
@@ -87,6 +95,19 @@ export default function BattlePage() {
     [startBattle]
   );
 
+  useEffect(() => {
+    if (bootstrappedFromQuery) return;
+
+    const initialPrompt = searchParams.get("prompt");
+    setBootstrappedFromQuery(true);
+
+    if (!initialPrompt) return;
+
+    handleSubmitPrompt(initialPrompt);
+    // Clean up URL after bootstrapping.
+    router.replace("/battle");
+  }, [bootstrappedFromQuery, searchParams, handleSubmitPrompt, router]);
+
   const handleVote = useCallback(
     async (choice: VoteChoice) => {
       if (!meta?.session_id) {
@@ -106,6 +127,20 @@ export default function BattlePage() {
       }));
 
       try {
+        const { data, error: authErr } = await supabase.auth.getSession();
+        if (authErr) {
+          // best-effort: vote should still work without user
+          console.warn("supabase.auth.getSession() failed", authErr);
+        }
+        const user = data.session?.user;
+
+        const clientInfo = {
+          user_agent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+          language: typeof navigator !== "undefined" ? navigator.language : undefined,
+          time_zone:
+            typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined,
+        };
+
         const res = await fetch("/api/proxy/api/arena/vote", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -115,6 +150,9 @@ export default function BattlePage() {
             prompt,
             left_model: meta.left_model,
             right_model: meta.right_model,
+            user_id: user?.id,
+            user_email: user?.email,
+            client_info: clientInfo,
           }),
         });
 
@@ -141,7 +179,7 @@ export default function BattlePage() {
         }));
       }
     },
-    [meta, prompt]
+    [meta, prompt, supabase]
   );
 
   const handleReset = useCallback(() => {
@@ -208,7 +246,7 @@ export default function BattlePage() {
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <header className="sticky top-0 z-40 border-b border-border/50 bg-card/60 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 sm:px-6">
           <div className="flex items-center gap-3">
             <Swords className="h-6 w-6 text-primary" />
             <div>
@@ -217,20 +255,32 @@ export default function BattlePage() {
             </div>
           </div>
 
-          {hasContent && (
-            <button
-              type="button"
-              onClick={handleReset}
+          <div className="flex items-center gap-2">
+            <a
+              href="/"
               className={cn(
-                "flex items-center gap-2 rounded-lg px-3 py-1.5",
-                "text-sm text-muted transition-colors",
+                "rounded-lg px-3 py-1.5 text-sm text-muted transition-colors",
                 "hover:bg-white/5 hover:text-foreground"
               )}
             >
-              <RotateCcw className="h-4 w-4" />
-              新对局
-            </button>
-          )}
+              返回首页
+            </a>
+
+            {hasContent && (
+              <button
+                type="button"
+                onClick={handleReset}
+                className={cn(
+                  "flex items-center gap-2 rounded-lg px-3 py-1.5",
+                  "text-sm text-muted transition-colors",
+                  "hover:bg-white/5 hover:text-foreground"
+                )}
+              >
+                <RotateCcw className="h-4 w-4" />
+                新对局
+              </button>
+            )}
+          </div>
         </div>
       </header>
 

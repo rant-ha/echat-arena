@@ -8,12 +8,15 @@ interface PromptInputProps {
   onSubmit: (prompt: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  /** Optional extra classes applied to the fixed container wrapper. */
+  containerClassName?: string;
 }
 
 export function PromptInput({
   onSubmit,
   disabled,
   placeholder = "输入你的 Prompt，比较两路回答…",
+  containerClassName,
 }: PromptInputProps) {
   const [value, setValue] = useState("");
 
@@ -43,7 +46,8 @@ export function PromptInput({
       className={cn(
         "fixed bottom-0 left-0 right-0 z-50",
         "border-t border-border/50 bg-card/75 backdrop-blur-xl",
-        "px-4 py-4 sm:px-6"
+        "px-4 py-4 sm:px-6",
+        containerClassName
       )}
     >
       <div className="mx-auto max-w-4xl">
