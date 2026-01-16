@@ -124,7 +124,7 @@ export function HomeClient(props: { userEmail?: string | null }) {
             <div className="grid gap-6 lg:grid-cols-[1fr,420px]">
               {/* Hero */}
               <Card className="p-6">
-                <h2 className="text-xl font-semibold">欢迎来到 Empathy Arena</h2>
+                <h2 className="text-xl font-semibold">欢迎来到 Empathy Arena 🎭</h2>
                 <p className="mt-2 text-sm text-muted">
                   发送一个 Prompt，我们会并行生成两路回答（双盲）；生成完成后你可以投票，随后揭晓哪个更好。
                 </p>
