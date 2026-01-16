@@ -120,8 +120,8 @@ export function HomeClient(props: { userEmail?: string | null }) {
         </header>
 
         <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-            <div className="grid gap-6 lg:grid-cols-[1fr,420px]">
+          <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16 lg:py-20">
+            <div className="grid gap-8 lg:grid-cols-[1fr,420px]">
               {/* Hero */}
               <Card className="p-6">
                 <h2 className="text-xl font-semibold">欢迎来到 Model Arena 🎭</h2>
