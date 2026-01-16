@@ -137,7 +137,7 @@ export function useBattleStream() {
     });
 
     try {
-      const res = await fetch("/api/proxy/arena/battle", {
+      const res = await fetch("/api/proxy/api/arena/battle", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt }),
