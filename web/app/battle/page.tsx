@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Swords, RotateCcw } from "lucide-react";
 import { useBattleStream } from "@/hooks/useBattleStream";
 import { ResponseCard } from "@/components/ResponseCard";
@@ -54,8 +54,6 @@ function armLabel(arm?: string): "Baseline" | "Strategy" | null {
 
 export default function BattlePage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
   const [bootstrappedFromQuery, setBootstrappedFromQuery] = useState(false);
 
@@ -97,16 +95,18 @@ export default function BattlePage() {
 
   useEffect(() => {
     if (bootstrappedFromQuery) return;
-
-    const initialPrompt = searchParams.get("prompt");
     setBootstrappedFromQuery(true);
 
+    if (typeof window === "undefined") return;
+
+    const url = new URL(window.location.href);
+    const initialPrompt = url.searchParams.get("prompt");
     if (!initialPrompt) return;
 
     handleSubmitPrompt(initialPrompt);
     // Clean up URL after bootstrapping.
     router.replace("/battle");
-  }, [bootstrappedFromQuery, searchParams, handleSubmitPrompt, router]);
+  }, [bootstrappedFromQuery, handleSubmitPrompt, router]);
 
   const handleVote = useCallback(
     async (choice: VoteChoice) => {
@@ -127,12 +127,19 @@ export default function BattlePage() {
       }));
 
       try {
-        const { data, error: authErr } = await supabase.auth.getSession();
-        if (authErr) {
+        let user: any = undefined;
+        try {
+          const supabase = createSupabaseBrowserClient();
+          const { data, error: authErr } = await supabase.auth.getSession();
+          if (authErr) {
+            // best-effort: vote should still work without user
+            console.warn("supabase.auth.getSession() failed", authErr);
+          }
+          user = data.session?.user;
+        } catch (err) {
           // best-effort: vote should still work without user
-          console.warn("supabase.auth.getSession() failed", authErr);
+          console.warn("createSupabaseBrowserClient() failed", err);
         }
-        const user = data.session?.user;
 
         const clientInfo = {
           user_agent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
@@ -179,7 +186,7 @@ export default function BattlePage() {
         }));
       }
     },
-    [meta, prompt, supabase]
+    [meta, prompt]
   );
 
   const handleReset = useCallback(() => {
