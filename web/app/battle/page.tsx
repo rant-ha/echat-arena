@@ -257,7 +257,7 @@ export default function BattlePage() {
           <div className="flex items-center gap-3">
             <Swords className="h-6 w-6 text-primary" />
             <div>
-              <h1 className="text-lg font-semibold text-foreground">Empathy Arena</h1>
+              <h1 className="text-lg font-semibold text-foreground">Model Arena</h1>
               <p className="text-xs text-muted">/battle · 双盲对比 · 投票后揭晓</p>
             </div>
           </div>

@@ -78,7 +78,7 @@ export function Sidebar(props: {
             "hover:opacity-90"
           )}
         >
-          Empathy Arena
+          Model Arena
         </a>
 
         <a

@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Empathy Arena",
-  description: "Empathy Arena (Next.js 14)",
+  title: "Model Arena",
+  description: "Model Arena (Next.js 14)",
 };
 
 export default function RootLayout({
