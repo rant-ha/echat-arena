@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { History, ChevronDown, ChevronUp } from "lucide-react";
+import { History, ChevronDown, ChevronUp, Menu, X } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/utils/supabase/client";
 import { cn, Card } from "@/components/ui";
+import { Sidebar } from "@/components/Sidebar";
 
 type VoteChoice = "model_a" | "model_b" | "tie" | "both_bad" | string;
 
@@ -91,8 +92,22 @@ export default function HistoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const openSidebar = useCallback(() => setSidebarOpen(true), []);
+
   const toggle = useCallback((id: string) => {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  }, []);
+
+  useEffect(() => {
+    // Fetch user info for sidebar & logic
+    const supabase = createSupabaseBrowserClient();
+    supabase.auth.getUser().then(({ data }) => {
+       if (data.user?.email) setUserEmail(data.user.email);
+    });
   }, []);
 
   useEffect(() => {
@@ -146,197 +161,229 @@ export default function HistoryPage() {
   }, [rows]);
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-border/50 bg-card/60 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6">
+    <div className="flex min-h-screen bg-[var(--main-bg)] text-[var(--text-primary)]">
+      {/* Desktop sidebar */}
+      <div className="hidden md:block md:w-[260px] md:shrink-0">
+        <div className="sticky top-0 h-screen">
+          <Sidebar className="h-screen" userEmail={userEmail} />
+        </div>
+      </div>
+
+      {/* Mobile sidebar drawer */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-[60] md:hidden">
+          <button
+            type="button"
+            aria-label="Close sidebar"
+            className="absolute inset-0 bg-black/50"
+            onClick={closeSidebar}
+          />
+          <div className="absolute left-0 top-0 h-full w-[86vw] max-w-[320px]">
+            <Sidebar className="h-full" onNavigate={closeSidebar} userEmail={userEmail} />
+          </div>
+        </div>
+      )}
+
+      {/* Main Content */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Header */}
+        <header className="sticky top-0 z-40 flex items-center justify-between px-4 py-3 bg-[var(--main-bg)]/80 backdrop-blur-md border-b border-[var(--border-color)]">
           <div className="flex items-center gap-3">
-            <History className="h-6 w-6 text-primary" />
-            <div>
-              <h1 className="text-lg font-semibold text-foreground">
-                History
-              </h1>
-              <p className="text-xs text-muted">
-                共 {headerStats.total} 条；你更偏好 Baseline: {headerStats.winsBaseline}
-                ，Strategy: {headerStats.winsStrategy}
-              </p>
+            <button
+              type="button"
+              onClick={sidebarOpen ? closeSidebar : openSidebar}
+              className={cn(
+                "md:hidden",
+                "inline-flex h-10 w-10 items-center justify-center rounded-lg",
+                "hover:bg-white/10 transition-colors",
+                "text-[var(--text-primary)]"
+              )}
+              aria-label={sidebarOpen ? "Close menu" : "Open menu"}
+            >
+              {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+
+            <div className="flex items-center gap-3">
+              <History className="h-5 w-5 text-[var(--text-muted)]" />
+              <div>
+                <h1 className="text-sm font-semibold text-[var(--text-primary)]">
+                  History
+                </h1>
+                <p className="hidden text-xs text-[var(--text-muted)] sm:block">
+                  共 {headerStats.total} 条；Baseline Win: {headerStats.winsBaseline} / Strategy Win: {headerStats.winsStrategy}
+                </p>
+              </div>
             </div>
           </div>
-          <a
-            href="/battle"
-            className={cn(
-              "rounded-lg px-3 py-1.5 text-sm text-muted transition-colors",
-              "hover:bg-white/5 hover:text-foreground"
-            )}
-          >
-            去 Battle
-          </a>
-        </div>
-      </header>
+        </header>
 
-      {/* Main */}
-      <main className="flex-1 overflow-y-auto pb-10">
-        <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
-          {loading ? (
-            <Card className="p-5">
-              <p className="text-sm text-muted">加载中…</p>
-            </Card>
-          ) : error ? (
-            <Card className="border-red-400/30 bg-red-500/10 p-5">
-              <p className="text-sm text-red-300">{error}</p>
-              <p className="mt-2 text-xs text-muted">
-                如果你刚登录/注册，刷新一次页面通常即可（依赖 Supabase cookie 同步）。
-              </p>
-            </Card>
-          ) : rows.length === 0 ? (
-            <Card className="p-5">
-              <p className="text-sm text-muted">
-                暂无历史记录。去 <a className="text-primary hover:underline" href="/battle">/battle</a> 完成一次投票后再来。
-              </p>
-            </Card>
-          ) : (
-            <div className="space-y-4">
-              {rows.map((r) => {
-                const isOpen = !!expanded[r.id];
-                const scores = extractAiScores(r.ai_scores);
-                const baselineTotal = totalAiScore(scores.baseline);
-                const strategyTotal = totalAiScore(scores.strategy);
-                const strategyWinsByAi =
-                  baselineTotal !== null &&
-                  strategyTotal !== null &&
-                  strategyTotal > baselineTotal;
+        {/* List Content */}
+        <main className="flex-1 overflow-y-auto pb-10">
+          <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
+            {loading ? (
+              <div className="rounded-xl border border-[var(--border-color)] p-5">
+                <p className="text-sm text-[var(--text-muted)]">加载中…</p>
+              </div>
+            ) : error ? (
+              <div className="rounded-xl border border-red-400/30 bg-red-500/10 p-5">
+                <p className="text-sm text-red-300">{error}</p>
+                <p className="mt-2 text-xs text-[var(--text-muted)]">
+                  如果你刚登录/注册，刷新一次页面通常即可（依赖 Supabase cookie 同步）。
+                </p>
+              </div>
+            ) : rows.length === 0 ? (
+              <div className="rounded-xl border border-[var(--border-color)] p-5">
+                <p className="text-sm text-[var(--text-muted)]">
+                  暂无历史记录。去 <a className="text-primary hover:underline" href="/battle">/battle</a> 完成一次投票后再来。
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {rows.map((r) => {
+                  const isOpen = !!expanded[r.id];
+                  const scores = extractAiScores(r.ai_scores);
+                  const baselineTotal = totalAiScore(scores.baseline);
+                  const strategyTotal = totalAiScore(scores.strategy);
+                  const strategyWinsByAi =
+                    baselineTotal !== null &&
+                    strategyTotal !== null &&
+                    strategyTotal > baselineTotal;
 
-                return (
-                  <Card key={r.id} className="p-0">
-                    <button
-                      type="button"
-                      onClick={() => toggle(r.id)}
-                      className={cn(
-                        "flex w-full items-start justify-between gap-4 p-5 text-left",
-                        "hover:bg-white/5"
-                      )}
+                  return (
+                    <div 
+                      key={r.id} 
+                      className="overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--sidebar-bg)] shadow-sm transition-colors hover:border-[var(--text-muted)]"
                     >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                          <span className="text-xs text-muted">
-                            {formatTime(r.created_at)}
-                          </span>
-                          <span className="text-xs text-muted">•</span>
-                          <span className="text-xs text-muted">
-                            {voteLabel(r.user_vote)}
-                          </span>
-                        </div>
-
-                        <h3 className="mt-2 line-clamp-2 text-sm font-medium text-foreground/90">
-                          {truncate(r.prompt, 140)}
-                        </h3>
-
-                        <div className="mt-3 grid gap-3 md:grid-cols-2">
-                          <div className="rounded-xl border border-border/50 bg-card/40 px-4 py-3">
-                            <p className="text-xs text-muted">AI Score (Baseline A)</p>
-                            <p className="mt-1 font-mono text-sm text-foreground">
-                              {baselineTotal ?? "—"}
-                              {baselineTotal !== null ? " / 15" : ""}
-                            </p>
-                          </div>
-                          <div className="rounded-xl border border-border/50 bg-card/40 px-4 py-3">
-                            <p className="text-xs text-muted">AI Score (Strategy B)</p>
-                            <p
-                              className={cn(
-                                "mt-1 font-mono text-sm",
-                                strategyWinsByAi ? "text-green-300" : "text-foreground"
-                              )}
-                            >
-                              {strategyTotal ?? "—"}
-                              {strategyTotal !== null ? " / 15" : ""}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="mt-1 flex shrink-0 items-center gap-2 text-muted">
-                        <span className="text-xs">详情</span>
-                        {isOpen ? (
-                          <ChevronUp className="h-4 w-4" />
-                        ) : (
-                          <ChevronDown className="h-4 w-4" />
+                      <button
+                        type="button"
+                        onClick={() => toggle(r.id)}
+                        className={cn(
+                          "flex w-full items-start justify-between gap-4 p-5 text-left",
+                          "hover:bg-white/5 transition-colors"
                         )}
-                      </div>
-                    </button>
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <span className="text-xs text-[var(--text-muted)]">
+                              {formatTime(r.created_at)}
+                            </span>
+                            <span className="text-xs text-[var(--text-muted)]">•</span>
+                            <span className="text-xs text-[var(--text-muted)]">
+                              {voteLabel(r.user_vote)}
+                            </span>
+                          </div>
 
-                    <AnimatePresence initial={false}>
-                      {isOpen && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: "auto", opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.25 }}
-                          className="overflow-hidden"
-                        >
-                          <div className="border-t border-border/50 p-5">
-                            <div className="grid gap-4 md:grid-cols-2">
-                              <div className="rounded-2xl border border-border/50 bg-card/50 p-4">
-                                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">
-                                  Baseline (A)
-                                </p>
-                                <pre className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
-                                  {r.reply_a}
-                                </pre>
-                              </div>
-                              <div className="rounded-2xl border border-border/50 bg-card/50 p-4">
-                                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">
-                                  Strategy (B)
-                                </p>
-                                <pre className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
-                                  {r.reply_b}
-                                </pre>
-                              </div>
+                          <h3 className="mt-2 line-clamp-2 text-sm font-medium text-[var(--text-primary)]">
+                            {truncate(r.prompt, 140)}
+                          </h3>
+
+                          <div className="mt-3 grid gap-3 md:grid-cols-2">
+                            <div className="rounded-lg border border-[var(--border-color)] bg-[var(--main-bg)] px-3 py-2">
+                              <p className="text-xs text-[var(--text-muted)]">AI Score (Baseline A)</p>
+                              <p className="mt-1 font-mono text-sm text-[var(--text-primary)]">
+                                {baselineTotal ?? "—"}
+                                {baselineTotal !== null ? " / 15" : ""}
+                              </p>
                             </div>
-
-                            <div className="mt-4 grid gap-4 md:grid-cols-2">
-                              <div className="rounded-xl border border-border/50 bg-card/40 p-4">
-                                <p className="text-xs text-muted">AI Judge (A)</p>
-                                <p className="mt-1 text-sm text-foreground/90">
-                                  empathy={scores.baseline?.empathy_score ?? "—"}, safety=
-                                  {scores.baseline?.emotional_safety_score ?? "—"}, helpful=
-                                  {scores.baseline?.helpfulness_score ?? "—"}
-                                </p>
-                                {scores.baseline?.comment ? (
-                                  <p className="mt-2 text-xs text-muted">
-                                    {scores.baseline.comment}
-                                  </p>
-                                ) : null}
-                              </div>
-
-                              <div className="rounded-xl border border-border/50 bg-card/40 p-4">
-                                <p className="text-xs text-muted">AI Judge (B)</p>
-                                <p className="mt-1 text-sm text-foreground/90">
-                                  empathy={scores.strategy?.empathy_score ?? "—"}, safety=
-                                  {scores.strategy?.emotional_safety_score ?? "—"}, helpful=
-                                  {scores.strategy?.helpfulness_score ?? "—"}
-                                </p>
-                                {scores.strategy?.comment ? (
-                                  <p className="mt-2 text-xs text-muted">
-                                    {scores.strategy.comment}
-                                  </p>
-                                ) : null}
-                              </div>
-                            </div>
-
-                            <div className="mt-4 text-xs text-muted">
-                              session_id: <span className="font-mono">{r.session_id}</span>
+                            <div className="rounded-lg border border-[var(--border-color)] bg-[var(--main-bg)] px-3 py-2">
+                              <p className="text-xs text-[var(--text-muted)]">AI Score (Strategy B)</p>
+                              <p
+                                className={cn(
+                                  "mt-1 font-mono text-sm",
+                                  strategyWinsByAi ? "text-green-400" : "text-[var(--text-primary)]"
+                                )}
+                              >
+                                {strategyTotal ?? "—"}
+                                {strategyTotal !== null ? " / 15" : ""}
+                              </p>
                             </div>
                           </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </main>
+                        </div>
+
+                        <div className="mt-1 flex shrink-0 items-center gap-2 text-[var(--text-muted)]">
+                          <span className="text-xs">详情</span>
+                          {isOpen ? (
+                            <ChevronUp className="h-4 w-4" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4" />
+                          )}
+                        </div>
+                      </button>
+
+                      <AnimatePresence initial={false}>
+                        {isOpen && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.25 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="border-t border-[var(--border-color)] bg-[var(--main-bg)] p-5">
+                              <div className="grid gap-4 md:grid-cols-2">
+                                <div className="rounded-xl border border-[var(--border-color)] bg-[var(--sidebar-bg)] p-4">
+                                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">
+                                    Baseline (A)
+                                  </p>
+                                  <pre className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-primary)]/90">
+                                    {r.reply_a}
+                                  </pre>
+                                </div>
+                                <div className="rounded-xl border border-[var(--border-color)] bg-[var(--sidebar-bg)] p-4">
+                                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">
+                                    Strategy (B)
+                                  </p>
+                                  <pre className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-primary)]/90">
+                                    {r.reply_b}
+                                  </pre>
+                                </div>
+                              </div>
+
+                              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                                <div className="rounded-xl border border-[var(--border-color)] bg-[var(--sidebar-bg)] p-4">
+                                  <p className="text-xs text-[var(--text-muted)]">AI Judge (A)</p>
+                                  <p className="mt-1 text-sm text-[var(--text-primary)]">
+                                    empathy={scores.baseline?.empathy_score ?? "—"}, safety=
+                                    {scores.baseline?.emotional_safety_score ?? "—"}, helpful=
+                                    {scores.baseline?.helpfulness_score ?? "—"}
+                                  </p>
+                                  {scores.baseline?.comment ? (
+                                    <p className="mt-2 text-xs text-[var(--text-muted)]">
+                                      {scores.baseline.comment}
+                                    </p>
+                                  ) : null}
+                                </div>
+
+                                <div className="rounded-xl border border-[var(--border-color)] bg-[var(--sidebar-bg)] p-4">
+                                  <p className="text-xs text-[var(--text-muted)]">AI Judge (B)</p>
+                                  <p className="mt-1 text-sm text-[var(--text-primary)]">
+                                    empathy={scores.strategy?.empathy_score ?? "—"}, safety=
+                                    {scores.strategy?.emotional_safety_score ?? "—"}, helpful=
+                                    {scores.strategy?.helpfulness_score ?? "—"}
+                                  </p>
+                                  {scores.strategy?.comment ? (
+                                    <p className="mt-2 text-xs text-[var(--text-muted)]">
+                                      {scores.strategy.comment}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </div>
+
+                              <div className="mt-4 text-xs text-[var(--text-muted)]">
+                                session_id: <span className="font-mono">{r.session_id}</span>
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

@@ -3,12 +3,13 @@
 import { useMemo, useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { Swords, RotateCcw } from "lucide-react";
+import { Swords, RotateCcw, Menu, X, ChevronDown } from "lucide-react";
 import { useBattleStream } from "@/hooks/useBattleStream";
 import { ResponseCard } from "@/components/ResponseCard";
 import type { AiJudgeScores } from "@/components/ResponseCard";
 import { VoteButtons, VoteChoice } from "@/components/VoteButtons";
 import { PromptInput } from "@/components/PromptInput";
+import { Sidebar } from "@/components/Sidebar";
 import { cn } from "@/components/ui";
 import { createSupabaseBrowserClient } from "@/utils/supabase/client";
 
@@ -54,8 +55,20 @@ function armLabel(arm?: string): "Baseline" | "Strategy" | null {
 
 export default function BattlePage() {
   const router = useRouter();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
 
   const [bootstrappedFromQuery, setBootstrappedFromQuery] = useState(false);
+
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const openSidebar = useCallback(() => setSidebarOpen(true), []);
+
+  useEffect(() => {
+     const supabase = createSupabaseBrowserClient();
+     supabase.auth.getUser().then(({ data }) => {
+       if (data.user?.email) setUserEmail(data.user.email);
+     });
+  }, []);
 
   const {
     status,
@@ -251,197 +264,235 @@ export default function BattlePage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      <header className="sticky top-0 z-40 border-b border-border/50 bg-card/60 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 sm:px-6">
-          <div className="flex items-center gap-3">
-            <Swords className="h-6 w-6 text-primary" />
-            <div>
-              <h1 className="text-lg font-semibold text-foreground">Model Arena</h1>
-              <p className="text-xs text-muted">/battle · 双盲对比 · 投票后揭晓</p>
-            </div>
+    <div className="flex min-h-screen bg-[var(--main-bg)] text-[var(--text-primary)]">
+      {/* Desktop sidebar */}
+      <div className="hidden md:block md:w-[260px] md:shrink-0">
+        <div className="sticky top-0 h-screen">
+          <Sidebar className="h-screen" userEmail={userEmail} />
+        </div>
+      </div>
+
+      {/* Mobile sidebar drawer */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-[60] md:hidden">
+          <button
+            type="button"
+            aria-label="Close sidebar"
+            className="absolute inset-0 bg-black/50"
+            onClick={closeSidebar}
+          />
+          <div className="absolute left-0 top-0 h-full w-[86vw] max-w-[320px]">
+            <Sidebar className="h-full" onNavigate={closeSidebar} userEmail={userEmail} />
+          </div>
+        </div>
+      )}
+
+      {/* Main Content Area */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Top Header */}
+        <header className="sticky top-0 z-40 flex items-center justify-between px-4 py-3 bg-[var(--main-bg)]/80 backdrop-blur-md">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={sidebarOpen ? closeSidebar : openSidebar}
+              className={cn(
+                "md:hidden",
+                "inline-flex h-10 w-10 items-center justify-center rounded-lg",
+                "hover:bg-white/10 transition-colors",
+                "text-[var(--text-primary)]"
+              )}
+              aria-label={sidebarOpen ? "Close menu" : "Open menu"}
+            >
+              {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+
+            <button
+              type="button"
+              className={cn(
+                "flex items-center gap-1 rounded-lg px-3 py-2",
+                "text-lg font-semibold text-[var(--text-primary)]",
+                "hover:bg-white/10 transition-colors"
+              )}
+            >
+              Model Arena
+              <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
+            </button>
           </div>
 
           <div className="flex items-center gap-2">
-            <a
-              href="/"
-              className={cn(
-                "rounded-lg px-3 py-1.5 text-sm text-muted transition-colors",
-                "hover:bg-white/5 hover:text-foreground"
-              )}
-            >
-              返回首页
-            </a>
-
             {hasContent && (
               <button
                 type="button"
                 onClick={handleReset}
                 className={cn(
                   "flex items-center gap-2 rounded-lg px-3 py-1.5",
-                  "text-sm text-muted transition-colors",
-                  "hover:bg-white/5 hover:text-foreground"
+                  "text-sm text-[var(--text-muted)] transition-colors",
+                  "hover:bg-white/5 hover:text-[var(--text-primary)]"
                 )}
               >
                 <RotateCcw className="h-4 w-4" />
-                新对局
+                <span className="hidden sm:inline">新对局</span>
               </button>
             )}
           </div>
-        </div>
-      </header>
+        </header>
 
-      <main className="flex-1 overflow-y-auto pb-40">
-        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-          <AnimatePresence>
-            {status === "idle" && !hasContent && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="flex flex-col items-center justify-center py-20 text-center"
-              >
-                <div className="mb-6 rounded-full bg-primary/10 p-6">
-                  <Swords className="h-12 w-12 text-primary" />
-                </div>
-                <h2 className="mb-2 text-2xl font-semibold text-foreground">
-                  开始一场对比
-                </h2>
-                <p className="max-w-md text-muted">
-                  在底部输入框发送 Prompt；两路回答会实时流式输出；完成后投票并揭晓身份。
-                </p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {(error || voteState.error) && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mb-6 rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
-            >
-              {voteState.error || error}
-            </motion.div>
-          )}
-
-          {prompt && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mb-6"
-            >
-              <div className="rounded-xl border border-border/50 bg-card/40 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted">
-                    Prompt
+        <main className="flex-1 overflow-y-auto pb-40">
+          <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
+            <AnimatePresence>
+              {status === "idle" && !hasContent && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  className="flex flex-col items-center justify-center py-20 text-center"
+                >
+                  <div className="mb-6 rounded-full bg-white/5 p-4">
+                    <Swords className="h-8 w-8 text-[var(--text-primary)]" />
+                  </div>
+                  <h2 className="mb-2 text-2xl font-semibold text-[var(--text-primary)]">
+                    Model Arena
+                  </h2>
+                  <p className="max-w-md text-[var(--text-muted)]">
+                    在底部输入框发送 Prompt，同时对比两路模型的效果。
                   </p>
-                  {meta?.session_id ? (
-                    <p className="text-xs text-muted">
-                      session: <span className="font-mono">{meta.session_id}</span>
-                    </p>
-                  ) : null}
-                </div>
-                <p className="mt-2 whitespace-pre-wrap text-foreground">{prompt}</p>
-              </div>
-            </motion.div>
-          )}
-
-          {hasContent && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={cn(
-                "grid gap-4",
-                "grid-cols-1 md:grid-cols-2",
-                "min-h-[320px] md:min-h-[420px]"
+                </motion.div>
               )}
-            >
-              <div className="h-[320px] md:h-[420px]">
-                <ResponseCard
-                  side="left"
-                  anonymousLabel="匿名 A"
-                  revealed={
-                    voteState.isRevealed
-                      ? {
-                          label: revealedLeftLabel || "已揭晓",
-                          subtitle:
-                            revealedLeftLabel === "Strategy" ? strategySubtitle : undefined,
-                        }
-                      : undefined
-                  }
-                  content={leftText}
-                  isStreaming={leftStreaming}
-                  isRevealed={voteState.isRevealed}
-                  isWinner={getWinnerStatus("left")}
-                  judgeScores={judgeScoresLeft}
-                  judgeLoading={voteState.isSubmitting}
-                />
-              </div>
+            </AnimatePresence>
 
-              <div className="h-[320px] md:h-[420px]">
-                <ResponseCard
-                  side="right"
-                  anonymousLabel="匿名 B"
-                  revealed={
-                    voteState.isRevealed
-                      ? {
-                          label: revealedRightLabel || "已揭晓",
-                          subtitle:
-                            revealedRightLabel === "Strategy" ? strategySubtitle : undefined,
-                        }
-                      : undefined
-                  }
-                  content={rightText}
-                  isStreaming={rightStreaming}
-                  isRevealed={voteState.isRevealed}
-                  isWinner={getWinnerStatus("right")}
-                  judgeScores={judgeScoresRight}
-                  judgeLoading={voteState.isSubmitting}
-                />
-              </div>
-            </motion.div>
-          )}
-
-          <AnimatePresence>
-            {isDone && hasContent && (
+            {(error || voteState.error) && (
               <motion.div
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className="mt-8"
+                className="mb-6 rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
               >
-                <div className="text-center">
-                  {!voteState.isRevealed && (
-                    <p className="mb-4 text-sm text-muted">你觉得哪一个更好？</p>
-                  )}
+                {voteState.error || error}
+              </motion.div>
+            )}
 
-                  <VoteButtons
-                    onVote={handleVote}
-                    disabled={!canVote || voteState.isSubmitting}
-                    votedChoice={voteState.choice}
-                  />
-
-                  {voteState.isRevealed && (
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="mt-6"
-                    >
-                      <p className="text-sm text-muted">投票成功，身份已揭晓。</p>
-                    </motion.div>
-                  )}
+            {prompt && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-6"
+              >
+                <div className="rounded-xl border border-[var(--border-color)] bg-[var(--input-bg)] p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">
+                      Prompt
+                    </p>
+                    {meta?.session_id ? (
+                      <p className="text-xs text-[var(--text-muted)]">
+                        session: <span className="font-mono">{meta.session_id}</span>
+                      </p>
+                    ) : null}
+                  </div>
+                  <p className="mt-2 whitespace-pre-wrap text-[var(--text-primary)]">{prompt}</p>
                 </div>
               </motion.div>
             )}
-          </AnimatePresence>
-        </div>
-      </main>
 
-      <PromptInput
-        onSubmit={handleSubmitPrompt}
-        disabled={isStreaming}
-        placeholder={isStreaming ? "生成中…" : "输入 Prompt，回车发送"}
-      />
+            {hasContent && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={cn(
+                  "grid gap-4",
+                  "grid-cols-1 md:grid-cols-2",
+                  "min-h-[320px] md:min-h-[420px]"
+                )}
+              >
+                <div className="h-[320px] md:h-[420px]">
+                  <ResponseCard
+                    side="left"
+                    anonymousLabel="匿名 A"
+                    revealed={
+                      voteState.isRevealed
+                        ? {
+                            label: revealedLeftLabel || "已揭晓",
+                            subtitle:
+                              revealedLeftLabel === "Strategy" ? strategySubtitle : undefined,
+                          }
+                        : undefined
+                    }
+                    content={leftText}
+                    isStreaming={leftStreaming}
+                    isRevealed={voteState.isRevealed}
+                    isWinner={getWinnerStatus("left")}
+                    judgeScores={judgeScoresLeft}
+                    judgeLoading={voteState.isSubmitting}
+                  />
+                </div>
+
+                <div className="h-[320px] md:h-[420px]">
+                  <ResponseCard
+                    side="right"
+                    anonymousLabel="匿名 B"
+                    revealed={
+                      voteState.isRevealed
+                        ? {
+                            label: revealedRightLabel || "已揭晓",
+                            subtitle:
+                              revealedRightLabel === "Strategy" ? strategySubtitle : undefined,
+                          }
+                        : undefined
+                    }
+                    content={rightText}
+                    isStreaming={rightStreaming}
+                    isRevealed={voteState.isRevealed}
+                    isWinner={getWinnerStatus("right")}
+                    judgeScores={judgeScoresRight}
+                    judgeLoading={voteState.isSubmitting}
+                  />
+                </div>
+              </motion.div>
+            )}
+
+            <AnimatePresence>
+              {isDone && hasContent && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="mt-8"
+                >
+                  <div className="text-center">
+                    {!voteState.isRevealed && (
+                      <p className="mb-4 text-sm text-[var(--text-muted)]">你觉得哪一个更好？</p>
+                    )}
+
+                    <VoteButtons
+                      onVote={handleVote}
+                      disabled={!canVote || voteState.isSubmitting}
+                      votedChoice={voteState.choice}
+                    />
+
+                    {voteState.isRevealed && (
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="mt-6"
+                      >
+                        <p className="text-sm text-[var(--text-muted)]">投票成功，身份已揭晓。</p>
+                      </motion.div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </main>
+
+        <PromptInput
+          onSubmit={handleSubmitPrompt}
+          disabled={isStreaming}
+          placeholder={isStreaming ? "生成中…" : "Message Model Arena"}
+          containerClassName={cn(
+             "md:left-[260px] border-t-0 bg-gradient-to-t from-[var(--main-bg)] to-transparent", 
+             "backdrop-blur-none pb-8 pt-10"
+          )}
+        />
+      </div>
     </div>
   );
 }
