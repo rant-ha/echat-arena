@@ -130,27 +130,7 @@ export function ResponseCard({
             </div>
           </div>
 
-          <div className="mt-3 border-t border-border/50 pt-3">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted">AI Judge</span>
-              {judgeLoading ? (
-                <span className="flex items-center gap-1 text-muted">
-                  <span className="h-3 w-3 animate-spin rounded-full border border-primary/50 border-t-primary" />
-                  Scoring…
-                </span>
-              ) : total !== null ? (
-                <span className="font-mono text-primary">{total} / 15</span>
-              ) : (
-                <span className="text-muted">—</span>
-              )}
-            </div>
-
-            {judgeScores?.comment ? (
-              <p className="mt-2 line-clamp-3 text-xs text-muted">
-                {judgeScores.comment}
-              </p>
-            ) : null}
-          </div>
+          {/* AI Judge scores hidden per user request - data still collected in backend */}
         </div>
       </motion.div>
     </div>

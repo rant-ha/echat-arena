@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 import httpx
-from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -1026,6 +1026,27 @@ async def _insert_vote_supabase(row: Dict[str, Any]) -> None:
             raise RuntimeError(f"supabase insert failed {resp.status_code}: {resp.text}")
 
 
+async def _update_vote_supabase(session_id: str, ai_scores: Dict[str, Any]) -> None:
+    """Update ai_scores field for a vote record identified by session_id."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        print("[WARN] SUPABASE_URL or SUPABASE_SERVICE_KEY not set; skip update", file=sys.stderr)
+        return
+
+    url = f"{SUPABASE_URL}/rest/v1/votes?session_id=eq.{session_id}"
+    headers = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+    payload = {"ai_scores": ai_scores}
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.patch(url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
+        if resp.status_code >= 400:
+            raise RuntimeError(f"supabase update failed {resp.status_code}: {resp.text}")
+
+
 async def _fetch_all_votes_from_supabase() -> List[Dict[str, Any]]:
     """Fetch all votes rows via Supabase REST (service role)."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
@@ -1451,7 +1472,7 @@ async def battle(req: Request, body: Dict[str, Any] = Body(...)) -> StreamingRes
 
 
 @app.post(f"{API_PREFIX}/vote")
-async def vote(body: Dict[str, Any] = Body(...)) -> JSONResponse:
+async def vote(background_tasks: BackgroundTasks, body: Dict[str, Any] = Body(...)) -> JSONResponse:
     session_id = (body.get("session_id") or "").strip()
     vote_value = (body.get("vote") or "").strip()
     left_model = (body.get("left_model") or "").strip()
@@ -1485,30 +1506,8 @@ async def vote(body: Dict[str, Any] = Body(...)) -> JSONResponse:
     if prompt and sess.get("prompt") and prompt != sess.get("prompt"):
         print(_json_dumps({"t": _utc_now_iso(), "type": "warn", "msg": "prompt mismatch", "session": session_id}))
 
-    # Try to use background ai_scores; if missing, compute now
-    ai_scores = sess.get("ai_scores")
-    if ai_scores is None:
-        try:
-            p = sess.get("prompt", prompt)
-            score_a = await _judge_with_ai(p, left.get("text", ""))
-            score_b = await _judge_with_ai(p, right.get("text", ""))
-            ai_scores = {"model_a": score_a, "model_b": score_b}
-            await _SESSION_STORE.update(session_id, {"ai_scores": ai_scores})
-        except Exception as exc:  # pragma: no cover
-            ai_scores = {
-                "model_a": {
-                    "empathy_score": 0,
-                    "emotional_safety_score": 0,
-                    "helpfulness_score": 0,
-                    "comment": f"EVAL_FAILED: {exc}",
-                },
-                "model_b": {
-                    "empathy_score": 0,
-                    "emotional_safety_score": 0,
-                    "helpfulness_score": 0,
-                    "comment": f"EVAL_FAILED: {exc}",
-                },
-            }
+    # Use cached ai_scores from session if already available; otherwise insert NULL and backfill async
+    ai_scores = sess.get("ai_scores")  # may be None
 
     model_config: Dict[str, Any] = {
         "left": {"arm": left.get("arm"), "model_id": left.get("model_id")},
@@ -1544,6 +1543,10 @@ async def vote(body: Dict[str, Any] = Body(...)) -> JSONResponse:
         reply_a_text = right.get("text", "")
         reply_b_text = left.get("text", "")
 
+    # Enrich model_config with logical A/B labels for clarity
+    model_config["model_a"] = "baseline"
+    model_config["model_b"] = f"strategy_{sess.get('template_id') or 'unknown'}"
+
     row = {
         "session_id": session_id,
         "user_id": user_id,
@@ -1556,15 +1559,12 @@ async def vote(body: Dict[str, Any] = Body(...)) -> JSONResponse:
         "user_vote": mapped_vote,
         "user_tags": user_tags,
         "user_comment": user_comment,
+        # ai_scores may be None; background task will backfill later
         "ai_scores": ai_scores,
         "client_info": client_info,
         # Record base model name used for generation
         "base_model_name": sess.get("base_model_name") or (REPLY_MODEL_NAME or BASELINE_MODEL_ID),
     }
-
-    # Enrich model_config with logical A/B labels for clarity
-    model_config["model_a"] = "baseline"
-    model_config["model_b"] = f"strategy_{sess.get('template_id') or 'unknown'}"
 
     # stdout log (no local file)
     print(_json_dumps({"t": _utc_now_iso(), "type": "vote", "payload": {k: row.get(k) for k in ("session_id", "user_id", "user_vote")}}))
@@ -1573,6 +1573,24 @@ async def vote(body: Dict[str, Any] = Body(...)) -> JSONResponse:
         await _insert_vote_supabase(row)
     except Exception as exc:  # pragma: no cover
         print(f"[WARN] supabase insert failed session={session_id}: {exc}", file=sys.stderr)
+
+    # Schedule background task to compute AI scores and update Supabase if not already scored
+    if ai_scores is None:
+        async def _bg_eval_and_update() -> None:
+            try:
+                p = sess.get("prompt", prompt)
+                score_a = await _judge_with_ai(p, reply_a_text)
+                score_b = await _judge_with_ai(p, reply_b_text)
+                computed_scores = {"model_a": score_a, "model_b": score_b}
+                # Update session store (for any late reads)
+                await _SESSION_STORE.update(session_id, {"ai_scores": computed_scores})
+                # Backfill Supabase record
+                await _update_vote_supabase(session_id, computed_scores)
+                print(_json_dumps({"t": _utc_now_iso(), "type": "bg_eval_done", "session": session_id}))
+            except Exception as exc:  # pragma: no cover
+                print(f"[WARN] bg_eval failed session={session_id}: {exc}", file=sys.stderr)
+
+        background_tasks.add_task(_bg_eval_and_update)
 
     revealed_left = {"arm": left.get("arm"), "model_id": left.get("model_id")}
     revealed_right = {"arm": right.get("arm"), "model_id": right.get("model_id")}
