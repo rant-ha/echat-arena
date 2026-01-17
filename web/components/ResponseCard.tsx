@@ -39,6 +39,7 @@ interface ResponseCardProps {
 }
 
 export function ResponseCard({
+  side,
   anonymousLabel,
   revealed,
   content,
@@ -110,13 +111,9 @@ export function ResponseCard({
           <div className="mb-3 flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h3 className="truncate text-lg font-semibold text-[var(--text-primary)]">
-                {revealed?.label || anonymousLabel}
+                {side === "left" ? "Reply A" : "Reply B"}
               </h3>
-              {revealed?.subtitle ? (
-                <p className="mt-1 truncate text-xs text-[var(--text-muted)]">
-                  {revealed.subtitle}
-                </p>
-              ) : null}
+              {/* Intentionally hide any experimental metadata (template, emotion, intensity, etc.) */}
             </div>
             {isWinner === true && (
               <span className="shrink-0 rounded-full bg-green-500/20 px-2 py-0.5 text-xs font-medium text-green-400">
