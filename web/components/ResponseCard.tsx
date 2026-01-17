@@ -63,30 +63,30 @@ export function ResponseCard({
         <div
           className={cn(
             "absolute inset-0 rounded-2xl border p-5",
-            "bg-card/80 backdrop-blur-xl shadow-soft",
+            "bg-[var(--main-bg)] backdrop-blur-md shadow-md",
             "flex flex-col",
             isWinner === true && "border-green-400/50 ring-2 ring-green-400/30",
-            isWinner === false && "border-border",
-            isWinner === undefined && "border-border"
+            isWinner === false && "border-[var(--border-color)]",
+            isWinner === undefined && "border-[var(--border-color)]"
           )}
           style={{ backfaceVisibility: "hidden" }}
         >
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-foreground/90">
+            <h3 className="text-lg font-semibold text-[var(--text-primary)]">
               {anonymousLabel}
             </h3>
             {isStreaming && (
-              <span className="flex items-center gap-1.5 text-xs text-primary">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
+              <span className="flex items-center gap-1.5 text-xs text-[var(--text-primary)]">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--text-primary)]" />
                 Streaming…
               </span>
             )}
           </div>
           <div className="flex-1 overflow-y-auto">
-            <div className="prose prose-sm prose-invert max-w-none leading-relaxed text-foreground/80 prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0">
+            <div className="prose prose-sm prose-invert max-w-none leading-relaxed text-[var(--text-primary)] prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0">
               <ReactMarkdown>{content}</ReactMarkdown>
               {isStreaming && (
-                <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-primary" />
+                <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-[var(--text-primary)]" />
               )}
             </div>
           </div>
@@ -96,11 +96,11 @@ export function ResponseCard({
         <div
           className={cn(
             "absolute inset-0 rounded-2xl border p-5",
-            "bg-gradient-to-br from-card/90 to-card/70 backdrop-blur-xl shadow-soft",
+            "bg-[var(--main-bg)] backdrop-blur-md shadow-md",
             "flex flex-col",
             isWinner === true && "border-green-400/50 ring-2 ring-green-400/30",
-            isWinner === false && "border-border",
-            isWinner === undefined && "border-border"
+            isWinner === false && "border-[var(--border-color)]",
+            isWinner === undefined && "border-[var(--border-color)]"
           )}
           style={{
             backfaceVisibility: "hidden",
@@ -109,11 +109,11 @@ export function ResponseCard({
         >
           <div className="mb-3 flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="truncate text-lg font-semibold text-foreground/90">
+              <h3 className="truncate text-lg font-semibold text-[var(--text-primary)]">
                 {revealed?.label || anonymousLabel}
               </h3>
               {revealed?.subtitle ? (
-                <p className="mt-1 truncate text-xs text-muted">
+                <p className="mt-1 truncate text-xs text-[var(--text-muted)]">
                   {revealed.subtitle}
                 </p>
               ) : null}
@@ -126,7 +126,7 @@ export function ResponseCard({
           </div>
 
           <div className="flex-1 overflow-y-auto">
-            <div className="prose prose-sm prose-invert max-w-none leading-relaxed text-foreground/80 prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0">
+            <div className="prose prose-sm prose-invert max-w-none leading-relaxed text-[var(--text-primary)] prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0">
               <ReactMarkdown>{content}</ReactMarkdown>
             </div>
           </div>
