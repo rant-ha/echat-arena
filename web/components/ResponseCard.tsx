@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import ReactMarkdown from "react-markdown";
 import { cn } from "./ui";
 
 export type ResponseCardReveal = {
@@ -82,8 +83,8 @@ export function ResponseCard({
             )}
           </div>
           <div className="flex-1 overflow-y-auto">
-            <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
-              {content}
+            <div className="prose prose-sm prose-invert max-w-none leading-relaxed text-foreground/80 prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0">
+              <ReactMarkdown>{content}</ReactMarkdown>
               {isStreaming && (
                 <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-primary" />
               )}
@@ -125,8 +126,8 @@ export function ResponseCard({
           </div>
 
           <div className="flex-1 overflow-y-auto">
-            <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
-              {content}
+            <div className="prose prose-sm prose-invert max-w-none leading-relaxed text-foreground/80 prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0">
+              <ReactMarkdown>{content}</ReactMarkdown>
             </div>
           </div>
 

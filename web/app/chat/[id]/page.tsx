@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Menu, X, ArrowLeft, User, Bot, Check } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { createSupabaseBrowserClient } from "@/utils/supabase/client";
 import { cn } from "@/components/ui";
 import { Sidebar } from "@/components/Sidebar";
@@ -33,7 +34,9 @@ function UserBubble({ content }: { content: string }) {
     <div className="flex justify-end">
       <div className="flex max-w-[85%] items-start gap-3 md:max-w-[70%]">
         <div className="rounded-2xl bg-[var(--primary)] px-4 py-3 text-white">
-          <p className="whitespace-pre-wrap text-sm leading-relaxed">{content}</p>
+          <div className="prose prose-sm prose-invert max-w-none leading-relaxed prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0">
+            <ReactMarkdown>{content}</ReactMarkdown>
+          </div>
         </div>
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-orange-400 to-pink-500">
           <User className="h-4 w-4 text-white" />
@@ -83,9 +86,9 @@ function AIBubble({
       </div>
       {/* Content */}
       <div className="flex-1">
-        <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-primary)]/90">
-          {content}
-        </p>
+        <div className="prose prose-sm prose-invert max-w-none leading-relaxed text-[var(--text-primary)]/90 prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0">
+          <ReactMarkdown>{content}</ReactMarkdown>
+        </div>
       </div>
     </div>
   );
