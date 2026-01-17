@@ -144,7 +144,7 @@ export function Sidebar(props: {
             {rows.map((r) => (
               <li key={r.id}>
                 <a
-                  href="/history"
+                  href={`/chat/${r.id}`}
                   onClick={onNavigate}
                   className={cn(
                     "block rounded-lg px-3 py-2",

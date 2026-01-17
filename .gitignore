@@ -3,3 +3,6 @@
 .codex/auth.json
 __pycache__/
 FastChat/
+
+# Architecture planning docs (internal only)
+ARCHITECT_PLAN_V2.md
