@@ -1547,6 +1547,10 @@ async def vote(background_tasks: BackgroundTasks, body: Dict[str, Any] = Body(..
     model_config["model_a"] = "baseline"
     model_config["model_b"] = f"strategy_{sess.get('template_id') or 'unknown'}"
 
+    # Defensive: ensure flattened DB columns are populated even if session fields are missing.
+    template_id = sess.get("template_id") or model_config.get("template_id")
+    strategy_name = sess.get("strategy_name") or model_config.get("strategy_name")
+
     row = {
         "session_id": session_id,
         "user_id": user_id,
@@ -1564,6 +1568,9 @@ async def vote(background_tasks: BackgroundTasks, body: Dict[str, Any] = Body(..
         "client_info": client_info,
         # Record base model name used for generation
         "base_model_name": sess.get("base_model_name") or (REPLY_MODEL_NAME or BASELINE_MODEL_ID),
+        # Flattened columns for analysis/exports
+        "template_id": template_id,
+        "strategy_name": strategy_name,
     }
 
     # stdout log (no local file)
