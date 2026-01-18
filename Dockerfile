@@ -21,6 +21,9 @@ RUN apt-get update \
     # 注意：归档逻辑会在 ARCHIVE_ENABLED=true/1 时才启动（见 app.py）
     && pip install --no-cache-dir apscheduler google-api-python-client google-auth \
     \
+    # 4.2 Token 计数工具（H-02 修复）：tiktoken 用于精确的 token 计数
+    && pip install --no-cache-dir tiktoken \
+    \
     # 5. 安装 FastChat WebUI
     && pip install --no-cache-dir "fschat[webui]" \
     \

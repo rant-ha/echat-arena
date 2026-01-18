@@ -20,6 +20,15 @@ type VoteRow = {
   user_vote: VoteChoice | null;
 };
 
+type PostVoteTurn = {
+  id: string;
+  turn_index: number;
+  user_message: string;
+  assistant_message: string;
+  winner_side: string;
+  created_at: string;
+};
+
 function formatTime(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -142,6 +151,7 @@ export default function ChatDetailPage() {
   const id = params?.id as string;
 
   const [vote, setVote] = useState<VoteRow | null>(null);
+  const [postTurns, setPostTurns] = useState<PostVoteTurn[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -191,6 +201,19 @@ export default function ChatDetailPage() {
 
         if (!cancelled) {
           setVote(data as VoteRow);
+
+          // Fetch post-vote turns
+          const { data: turnsData, error: turnsErr } = await supabase
+            .from("post_vote_turns")
+            .select("*")
+            .eq("vote_id", id)
+            .order("turn_index", { ascending: true });
+
+          if (turnsErr) {
+            console.error("Error fetching post turns:", turnsErr);
+          } else if (turnsData) {
+            setPostTurns(turnsData as PostVoteTurn[]);
+          }
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -295,6 +318,25 @@ export default function ChatDetailPage() {
                   replyB={vote.reply_b}
                   userVote={vote.user_vote}
                 />
+
+                {/* Post-vote continuation turns */}
+                {postTurns.map((turn) => (
+                  <div key={turn.id} className="space-y-6">
+                    <UserBubble content={turn.user_message} />
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10">
+                        <Bot className="h-4 w-4 text-[var(--text-muted)]" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <AIBubble
+                          label={turn.winner_side === "left" ? "Reply A" : "Reply B"}
+                          content={turn.assistant_message}
+                          isSelected={true}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="rounded-xl border border-[var(--border-color)] p-5">

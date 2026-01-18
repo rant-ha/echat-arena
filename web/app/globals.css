@@ -64,6 +64,25 @@ button {
   background: rgba(148, 163, 184, 0.5);
 }
 
+/* Thin scrollbar for conversation history */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
 /* Animation for typing cursor */
 @keyframes blink {
   0%, 50% { opacity: 1; }

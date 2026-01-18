@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 
-export type BattleStreamSide = "meta" | "left" | "right" | "error";
+export type BattleStreamSide = "meta" | "left" | "right" | "error" | "warning";
 
 export interface BattleMeta {
   session_id: string;
@@ -17,6 +17,7 @@ export interface BattleMeta {
   support_type?: string;
   classifier_comment?: string;
   ts?: string;
+  turn?: number;
 }
 
 export interface BattleStreamFrame {
@@ -38,6 +39,11 @@ export interface BattleStreamFrame {
   support_type?: string;
   classifier_comment?: string;
   ts?: string;
+  turn?: number;
+
+  // warning/turn frame fields
+  type?: "warning" | "meta";
+  message?: string;
 }
 
 export interface BattleState {
@@ -94,10 +100,16 @@ function coerceMeta(frame: BattleStreamFrame): BattleMeta | null {
     support_type: frame.support_type,
     classifier_comment: frame.classifier_comment,
     ts: frame.ts,
+    turn: frame.turn,
   };
 }
 
-export function useBattleStream() {
+export interface UseBattleStreamOptions {
+  onWarning?: (message: string) => void;
+  onTurnUpdate?: (turn: number) => void;
+}
+
+export function useBattleStream(options?: UseBattleStreamOptions) {
   const [state, setState] = useState<BattleState>(initialState);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -120,7 +132,10 @@ export function useBattleStream() {
     }));
   }, []);
 
-  const startBattle = useCallback(async (prompt: string) => {
+  const startBattle = useCallback(async (prompt: string, retryCount = 0) => {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 2000; // 2秒基础延迟，指数退避后为 2s → 4s → 8s
+
     if (abortRef.current) abortRef.current.abort();
 
     const controller = new AbortController();
@@ -161,6 +176,12 @@ export function useBattleStream() {
       let buffer = "";
 
       const handleFrame = (frame: BattleStreamFrame) => {
+        // Handle warning events
+        if (frame.type === "warning" && frame.message) {
+          options?.onWarning?.(frame.message);
+          return;
+        }
+
         setState((prev) => {
           if (frame.side === "error") {
             return {
@@ -170,9 +191,16 @@ export function useBattleStream() {
             };
           }
 
-          if (frame.side === "meta") {
+          if (frame.side === "meta" || frame.type === "meta") {
             const meta = coerceMeta(frame);
-            return meta ? { ...prev, meta } : prev;
+            if (meta) {
+              // Update turn if provided
+              if (frame.turn !== undefined) {
+                options?.onTurnUpdate?.(frame.turn);
+              }
+              return { ...prev, meta };
+            }
+            return prev;
           }
 
           if (frame.side === "left") {
@@ -235,18 +263,180 @@ export function useBattleStream() {
       }));
     } catch (err) {
       if (controller.signal.aborted) return;
+      
+      // M-02: Retry logic with exponential backoff
+      if (retryCount < MAX_RETRIES) {
+        const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
+        console.warn(`Battle stream failed, retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`, err);
+        
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return startBattle(prompt, retryCount + 1);
+      }
+      
       const message = err instanceof Error ? err.message : String(err);
       setState((prev) => ({
         ...prev,
         status: "error",
-        error: message,
+        error: `连接失败，请刷新页面重试 (${message})`,
       }));
     }
-  }, []);
+  }, [options]);
+
+  const continueConversation = useCallback(async (sessionId: string, prompt: string, retryCount = 0) => {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 2000; // 2秒基础延迟，指数退避后为 2s → 4s → 8s
+
+    if (abortRef.current) abortRef.current.abort();
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    // Clear previous text but keep meta
+    setState((prev) => ({
+      ...prev,
+      status: "streaming",
+      leftText: "",
+      rightText: "",
+      leftDone: false,
+      rightDone: false,
+      error: null,
+    }));
+
+    try {
+      const res = await fetch("/api/proxy/api/arena/continue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId, user_message: prompt }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
+
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("text/event-stream")) {
+        throw new Error("Expected SSE stream, got: " + contentType);
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response body");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      const handleFrame = (frame: BattleStreamFrame) => {
+        // Handle warning events
+        if (frame.type === "warning" && frame.message) {
+          options?.onWarning?.(frame.message);
+          return;
+        }
+
+        setState((prev) => {
+          if (frame.side === "error") {
+            return {
+              ...prev,
+              status: "error",
+              error: frame.error || "Unknown error",
+            };
+          }
+
+          if (frame.side === "meta" || frame.type === "meta") {
+            const meta = coerceMeta(frame);
+            if (meta) {
+              // Update turn if provided
+              if (frame.turn !== undefined) {
+                options?.onTurnUpdate?.(frame.turn);
+              }
+              return { ...prev, meta };
+            }
+            return prev;
+          }
+
+          if (frame.side === "left") {
+            const leftText = frame.delta ? prev.leftText + frame.delta : prev.leftText;
+            const leftDone = prev.leftDone || !!frame.finish;
+            const status = leftDone && prev.rightDone ? "done" : prev.status;
+            return { ...prev, leftText, leftDone, status };
+          }
+
+          if (frame.side === "right") {
+            const rightText = frame.delta ? prev.rightText + frame.delta : prev.rightText;
+            const rightDone = prev.rightDone || !!frame.finish;
+            const status = prev.leftDone && rightDone ? "done" : prev.status;
+            return { ...prev, rightText, rightDone, status };
+          }
+
+          return prev;
+        });
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        buffer = buffer.replace(/\r\n/g, "\n");
+
+        let idx = buffer.indexOf("\n\n");
+        while (idx !== -1) {
+          const block = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+
+          for (const data of parseSseEventBlock(block)) {
+            if (!data) continue;
+            if (data === "[DONE]") {
+              setState((prev) => ({
+                ...prev,
+                status: prev.status === "error" ? "error" : "done",
+              }));
+              continue;
+            }
+            try {
+              const frame = JSON.parse(data) as BattleStreamFrame;
+              if (frame && typeof frame === "object" && typeof frame.side === "string") {
+                handleFrame(frame);
+              }
+            } catch {
+              // ignore malformed frames
+            }
+          }
+
+          idx = buffer.indexOf("\n\n");
+        }
+      }
+
+      // If stream ends without explicit finish frames, mark done best-effort.
+      setState((prev) => ({
+        ...prev,
+        status: prev.status === "error" ? "error" : "done",
+      }));
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      
+      // M-02: Retry logic with exponential backoff
+      if (retryCount < MAX_RETRIES) {
+        const delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
+        console.warn(`Continue conversation failed, retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`, err);
+        
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return continueConversation(sessionId, prompt, retryCount + 1);
+      }
+      
+      const message = err instanceof Error ? err.message : String(err);
+      setState((prev) => ({
+        ...prev,
+        status: "error",
+        error: `连接失败，请刷新页面重试 (${message})`,
+      }));
+    }
+  }, [options]);
 
   return {
     ...state,
     startBattle,
+    continueConversation,
     reset,
     abort,
   };

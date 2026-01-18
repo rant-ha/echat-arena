@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { Swords, RotateCcw, Menu, X, ChevronDown } from "lucide-react";
 import { useBattleStream } from "@/hooks/useBattleStream";
-import { ResponseCard } from "@/components/ResponseCard";
+import { ResponseCard, ConversationTurn } from "@/components/ResponseCard";
 import type { AiJudgeScores } from "@/components/ResponseCard";
 import { VoteButtons, VoteChoice } from "@/components/VoteButtons";
 import { PromptInput } from "@/components/PromptInput";
@@ -20,6 +20,7 @@ type VoteResult = {
     model_a?: AiJudgeScores;
     model_b?: AiJudgeScores;
   };
+  winner?: 'left' | 'right' | null;
 };
 
 interface VoteState {
@@ -28,6 +29,14 @@ interface VoteState {
   isRevealed: boolean;
   error: string | null;
   result: VoteResult | null;
+}
+
+// 投票后对话的轮次类型
+interface PostVoteTurn {
+  turn_index: number;
+  user_message: string;
+  assistant_message: string;
+  created_at: string;
 }
 
 function safeJsonParse(text: string): any {
@@ -60,6 +69,13 @@ export default function BattlePage() {
 
   const [bootstrappedFromQuery, setBootstrappedFromQuery] = useState(false);
 
+  // 投票后对话状态
+  const [winnerSide, setWinnerSide] = useState<'left' | 'right' | null>(null);
+  const [postVoteTurns, setPostVoteTurns] = useState<PostVoteTurn[]>([]);
+  const [postVoteCurrentReply, setPostVoteCurrentReply] = useState("");
+  const [isPostVoteChatting, setIsPostVoteChatting] = useState(false);
+
+  // M-06: Memoize callbacks to prevent unnecessary re-renders
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
 
@@ -68,6 +84,25 @@ export default function BattlePage() {
      supabase.auth.getUser().then(({ data }) => {
        if (data.user?.email) setUserEmail(data.user.email);
      });
+  }, []);
+
+  // Multi-turn conversation state
+  const [conversationHistory, setConversationHistory] = useState<Array<{
+    turn: number;
+    user: string;
+    reply_a: string;
+    reply_b: string;
+  }>>([]);
+  const [currentTurn, setCurrentTurn] = useState(0);
+  const [turnWarning, setTurnWarning] = useState(false);
+
+  // M-06: Memoize callbacks to prevent unnecessary re-renders
+  const handleWarning = useCallback((message: string) => {
+    setTurnWarning(true);
+  }, []);
+
+  const handleTurnUpdate = useCallback((turn: number) => {
+    setCurrentTurn(turn);
   }, []);
 
   const {
@@ -79,8 +114,9 @@ export default function BattlePage() {
     rightDone,
     error,
     startBattle,
+    continueConversation,
     reset,
-  } = useBattleStream();
+  } = useBattleStream({ onWarning: handleWarning, onTurnUpdate: handleTurnUpdate });
 
   const [prompt, setPrompt] = useState<string>("");
   const [voteState, setVoteState] = useState<VoteState>({
@@ -91,20 +127,210 @@ export default function BattlePage() {
     result: null,
   });
 
+  // 投票后发送消息
+  // Phase 8.2: Updated SSE parsing to support unified frame schema
+  const postVoteChatSend = useCallback(async (message: string) => {
+    if (!meta?.session_id) {
+      setVoteState((prev) => ({ ...prev, error: "缺少 session_id" }));
+      return;
+    }
+
+    setIsPostVoteChatting(true);
+    setPostVoteCurrentReply("");
+
+    try {
+      const res = await fetch("/api/proxy/api/arena/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: meta.session_id,
+          user_message: message,
+        }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`投票后对话失败：${text}`);
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response body");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let currentReply = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.trim() || !line.startsWith("data:")) continue;
+          const data = line.slice(5).trim();
+          if (data === "[DONE]") continue;
+
+          try {
+            const json = JSON.parse(data);
+            
+            // Phase 8.2: Unified SSE frame schema parsing
+            // Support both new format (with type field) and legacy format (backward compatible)
+            const frameType = json.type || (json.delta ? "delta" : json.finish ? "finish" : json.error ? "error" : "unknown");
+            
+            switch (frameType) {
+              case "meta":
+                // Meta frame - can be used for additional metadata if needed
+                break;
+              
+              case "delta":
+                // Delta frame - streaming content
+                if (json.delta) {
+                  currentReply += json.delta;
+                  setPostVoteCurrentReply(currentReply);
+                }
+                break;
+              
+              case "finish":
+                // Finish frame - complete the turn
+                if (json.finish) {
+                  const newTurn: PostVoteTurn = {
+                    turn_index: postVoteTurns.length + 1,
+                    user_message: message,
+                    assistant_message: currentReply,
+                    created_at: new Date().toISOString(),
+                  };
+                  setPostVoteTurns((prev) => [...prev, newTurn]);
+                  setPostVoteCurrentReply("");
+                  setIsPostVoteChatting(false);
+                }
+                break;
+              
+              case "error":
+                // Error frame - handle error
+                if (json.error) {
+                  throw new Error(json.error);
+                }
+                break;
+              
+              default:
+                // Legacy format fallback (backward compatibility)
+                if (json.delta) {
+                  currentReply += json.delta;
+                  setPostVoteCurrentReply(currentReply);
+                }
+                if (json.finish) {
+                  const newTurn: PostVoteTurn = {
+                    turn_index: postVoteTurns.length + 1,
+                    user_message: message,
+                    assistant_message: currentReply,
+                    created_at: new Date().toISOString(),
+                  };
+                  setPostVoteTurns((prev) => [...prev, newTurn]);
+                  setPostVoteCurrentReply("");
+                  setIsPostVoteChatting(false);
+                }
+                break;
+            }
+          } catch (e) {
+            // 忽略解析错误
+          }
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setVoteState((prev) => ({ ...prev, error: message }));
+      setIsPostVoteChatting(false);
+    }
+  }, [meta?.session_id, postVoteTurns.length]);
+
+  // 刷新恢复投票后聊天历史
+  useEffect(() => {
+    if (voteState.isRevealed && meta?.session_id && postVoteTurns.length === 0) {
+      const fetchHistory = async () => {
+        try {
+          const res = await fetch(
+            `/api/proxy/api/arena/chat/history?session_id=${meta.session_id}`
+          );
+          if (!res.ok) return;
+
+          const json = await res.json();
+          const data = json?.data || json;
+          if (data.turns && Array.isArray(data.turns)) {
+            setPostVoteTurns(data.turns);
+          }
+        } catch (err) {
+          console.warn("Failed to fetch post-vote chat history:", err);
+        }
+      };
+      fetchHistory();
+    }
+  }, [voteState.isRevealed, meta?.session_id, postVoteTurns.length]);
+
   const handleSubmitPrompt = useCallback(
     (inputPrompt: string) => {
       setPrompt(inputPrompt);
-      setVoteState({
-        choice: null,
-        isSubmitting: false,
-        isRevealed: false,
-        error: null,
-        result: null,
-      });
-      startBattle(inputPrompt);
+      
+      // 投票后继续对话分支
+      if (voteState.isRevealed && winnerSide) {
+        postVoteChatSend(inputPrompt);
+        return;
+      }
+      
+      // 投票前的正常流程
+      if (voteState.isRevealed) {
+        return; // 已投票但无 winner，不允许继续
+      }
+      
+      // Only reset vote state on first turn
+      if (currentTurn === 0) {
+        setVoteState({
+          choice: null,
+          isSubmitting: false,
+          isRevealed: false,
+          error: null,
+          result: null,
+        });
+        startBattle(inputPrompt);
+      } else {
+        // Continue conversation for subsequent turns
+        if (!meta?.session_id) {
+          // Error: no session_id for continuation
+          setVoteState((prev) => ({
+            ...prev,
+            error: "缺少 session_id，无法继续对话",
+          }));
+          return;
+        }
+        continueConversation(meta.session_id, inputPrompt);
+      }
     },
-    [startBattle]
+    [startBattle, continueConversation, currentTurn, meta?.session_id, voteState.isRevealed, winnerSide, postVoteChatSend]
   );
+
+  // Append to conversation history when a round completes
+  useEffect(() => {
+    if (status === "done" && prompt && leftText && rightText) {
+      const existingTurn = conversationHistory.find(t => t.turn === (currentTurn || 1));
+      if (!existingTurn) {
+        setConversationHistory(prev => [
+          ...prev,
+          {
+            turn: currentTurn || 1,
+            user: prompt,
+            reply_a: leftText,
+            reply_b: rightText,
+          }
+        ]);
+        // Update current turn if not already set by backend
+        if (currentTurn === 0) {
+          setCurrentTurn(1);
+        }
+      }
+    }
+  }, [status, prompt, leftText, rightText, currentTurn, conversationHistory]);
 
   useEffect(() => {
     if (bootstrappedFromQuery) return;
@@ -184,12 +410,19 @@ export default function BattlePage() {
         const json = safeJsonParse(rawText);
         const payload = unwrapProxyResponse(json);
 
+        // 确定胜者侧
+        let winner: 'left' | 'right' | null = null;
+        if (choice === 'left') winner = 'left';
+        else if (choice === 'right') winner = 'right';
+
         setVoteState((prev) => ({
           ...prev,
           isSubmitting: false,
           isRevealed: true,
-          result: payload || null,
+          result: payload ? { ...payload, winner } : null,
         }));
+        
+        setWinnerSide(winner);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         setVoteState((prev) => ({
@@ -212,6 +445,15 @@ export default function BattlePage() {
       error: null,
       result: null,
     });
+    // Reset multi-turn state
+    setConversationHistory([]);
+    setCurrentTurn(0);
+    setTurnWarning(false);
+    // Reset post-vote state
+    setWinnerSide(null);
+    setPostVoteTurns([]);
+    setPostVoteCurrentReply("");
+    setIsPostVoteChatting(false);
   }, [reset]);
 
   const isStreaming = status === "streaming";
@@ -227,6 +469,25 @@ export default function BattlePage() {
 
   const revealedLeftLabel = armLabel(revealLeft?.arm);
   const revealedRightLabel = armLabel(revealRight?.arm);
+
+  // M-06: Memoize conversation history mappings to prevent unnecessary re-renders
+  const leftHistory = useMemo(() =>
+    conversationHistory.map(turn => ({
+      turn: turn.turn,
+      user: turn.user,
+      reply: turn.reply_a
+    })),
+    [conversationHistory]
+  );
+
+  const rightHistory = useMemo(() =>
+    conversationHistory.map(turn => ({
+      turn: turn.turn,
+      user: turn.user,
+      reply: turn.reply_b
+    })),
+    [conversationHistory]
+  );
 
   const strategySubtitle = useMemo(() => {
     const parts: string[] = [];
@@ -370,6 +631,17 @@ export default function BattlePage() {
               </motion.div>
             )}
 
+            {/* Turn warning */}
+            {turnWarning && !voteState.isRevealed && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-4 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3"
+              >
+                <p className="text-yellow-400 text-sm">⚠️ 建议尽快投票</p>
+              </motion.div>
+            )}
+
             {prompt && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
@@ -384,6 +656,7 @@ export default function BattlePage() {
                     {meta?.session_id ? (
                       <p className="text-xs text-[var(--text-muted)]">
                         session: <span className="font-mono">{meta.session_id}</span>
+                        {currentTurn > 0 && <span className="ml-2">· turn: {currentTurn}</span>}
                       </p>
                     ) : null}
                   </div>
@@ -415,12 +688,17 @@ export default function BattlePage() {
                           }
                         : undefined
                     }
+                    conversationHistory={leftHistory}
                     content={leftText}
                     isStreaming={leftStreaming}
                     isRevealed={voteState.isRevealed}
                     isWinner={getWinnerStatus("left")}
                     judgeScores={judgeScoresLeft}
                     judgeLoading={voteState.isSubmitting}
+                    isLoser={voteState.isRevealed && winnerSide === 'right'}
+                    postVoteTurns={winnerSide === 'left' ? postVoteTurns : undefined}
+                    postVoteCurrentReply={winnerSide === 'left' ? postVoteCurrentReply : undefined}
+                    isPostVoteChatting={winnerSide === 'left' ? isPostVoteChatting : false}
                   />
                 </div>
 
@@ -437,12 +715,17 @@ export default function BattlePage() {
                           }
                         : undefined
                     }
+                    conversationHistory={rightHistory}
                     content={rightText}
                     isStreaming={rightStreaming}
                     isRevealed={voteState.isRevealed}
                     isWinner={getWinnerStatus("right")}
                     judgeScores={judgeScoresRight}
                     judgeLoading={voteState.isSubmitting}
+                    isLoser={voteState.isRevealed && winnerSide === 'left'}
+                    postVoteTurns={winnerSide === 'right' ? postVoteTurns : undefined}
+                    postVoteCurrentReply={winnerSide === 'right' ? postVoteCurrentReply : undefined}
+                    isPostVoteChatting={winnerSide === 'right' ? isPostVoteChatting : false}
                   />
                 </div>
               </motion.div>
@@ -485,10 +768,20 @@ export default function BattlePage() {
 
         <PromptInput
           onSubmit={handleSubmitPrompt}
-          disabled={isStreaming}
-          placeholder={isStreaming ? "生成中…" : "Message Model Arena"}
+          disabled={isStreaming || isPostVoteChatting || (voteState.isRevealed && !winnerSide)}
+          placeholder={
+            isStreaming
+              ? "生成中…"
+              : isPostVoteChatting
+                ? "生成中…"
+                : voteState.isRevealed && winnerSide
+                  ? "继续与选中的模型对话..."
+                  : voteState.isRevealed
+                    ? "已投票，无法继续对话"
+                    : "Message Model Arena"
+          }
           containerClassName={cn(
-             "md:left-[260px] border-t-0 bg-gradient-to-t from-[var(--main-bg)] to-transparent", 
+             "md:left-[260px] border-t-0 bg-gradient-to-t from-[var(--main-bg)] to-transparent",
              "backdrop-blur-none pb-8 pt-10"
           )}
         />
