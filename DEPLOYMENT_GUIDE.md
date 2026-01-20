@@ -429,9 +429,9 @@ curl https://your-frontend-url
 ## 7. 多轮对话功能部署检查
 
 ### 7.1 数据库迁移
-- [ ] 在 Supabase 执行 `migrations/add_conversation_history.sql`
-- [ ] 验证字段已添加：运行 `migrations/verify_schema.sql`
-- [ ] 在 `app.py` 中取消注释 `await _insert_vote_supabase(row)` (第 2037 行)
+- [x] 在 Supabase 执行 `migrations/add_conversation_history.sql`
+- [x] 验证字段已添加：运行 `migrations/verify_schema.sql`
+- [x] 在 `app.py` 中取消注释 `await _insert_vote_supabase(row)` (第 2037 行)
 
 ### 7.2 后端验证
 - [ ] Heroku 部署成功（`git push heroku main`）

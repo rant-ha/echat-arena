@@ -615,6 +615,9 @@ async def _http_post_json_with_retries(
         try:
             resp = await client.post(url, headers=headers, json=json_body, timeout=timeout)
             return resp
+        except asyncio.CancelledError:
+            # Important: allow cancellations (e.g., asyncio.wait_for timeouts) to propagate.
+            raise
         except Exception as exc:  # pragma: no cover
             last_exc = exc
             await asyncio.sleep(BACKOFF_BASE * (2**attempt) + random.random() * 0.2)
@@ -1394,6 +1397,9 @@ async def _fetch_vote_id_by_session_id_supabase(session_id: str) -> Optional[str
                 resp = await client.get(url, headers=headers, params=params, timeout=REQUEST_TIMEOUT)
                 last_exc = None
                 break
+            except asyncio.CancelledError:
+                # Important: allow cancellations (e.g., asyncio.wait_for timeouts) to propagate.
+                raise
             except Exception as exc:  # pragma: no cover
                 last_exc = exc
                 await asyncio.sleep(BACKOFF_BASE * (2**attempt) + random.random() * 0.2)
@@ -1731,6 +1737,9 @@ async def _insert_post_vote_turn_supabase(
                 )
                 return "error"
             return "ok"
+    except asyncio.CancelledError:
+        # Important: allow cancellations (e.g., asyncio.wait_for timeouts) to propagate.
+        raise
     except Exception as exc:
         log_error(
             error_type="post_vote_turn_insert_exception",
@@ -1777,6 +1786,9 @@ async def _fetch_post_vote_turns_supabase(vote_id: str) -> List[Dict[str, Any]]:
                 )
                 return []
             return resp.json() or []
+    except asyncio.CancelledError:
+        # Important: allow cancellations (e.g., asyncio.wait_for timeouts) to propagate.
+        raise
     except Exception as exc:
         log_error(
             error_type="post_vote_turns_fetch_exception",
@@ -2826,8 +2838,21 @@ async def post_vote_chat(req: Request, body: Dict[str, Any] = Body(...)) -> Stre
     # 1. Get pre-vote conversation history
     pre_vote_history = await _SESSION_STORE.get_conversation_history(session_id)
     
-    # 2. Get post-vote conversation history from database
-    post_vote_turns = await _fetch_post_vote_turns_supabase(vote_id)
+    # 2. Get post-vote conversation history from database (best-effort; never block chat)
+    post_vote_turns: List[Dict[str, Any]] = []
+    try:
+        fetch_timeout_sec = float(os.environ.get("ARENA_POST_VOTE_HISTORY_TIMEOUT_SEC", "5"))
+        post_vote_turns = await asyncio.wait_for(
+            _fetch_post_vote_turns_supabase(vote_id),
+            timeout=fetch_timeout_sec,
+        )
+    except Exception as exc:
+        log_error(
+            error_type="post_vote_turns_fetch_timeout_or_error",
+            context={"session": session_id, "vote_id": vote_id},
+            exc=exc,
+        )
+        post_vote_turns = []
     
     # 3. Combine histories for context-aware classification
     combined_history = []
@@ -2839,24 +2864,59 @@ async def post_vote_chat(req: Request, body: Dict[str, Any] = Body(...)) -> Stre
         })
     
     # Add post-vote turns to combined history
+    # Post-vote turns only have a single assistant; mirror it into both reply_a/reply_b
+    # to keep the classifier input schema stable.
     for turn in post_vote_turns:
+        assistant_msg = turn.get("assistant_message", "")
         combined_history.append({
             "user": turn.get("user_message", ""),
-            "reply_a": turn.get("assistant_message", ""),
-            "reply_b": ""
+            "reply_a": assistant_msg,
+            "reply_b": assistant_msg
         })
     
-    # Re-classify emotion for new input with full conversation context
-    classifier = await _classify_emotion(user_message, conversation_history=combined_history)
-    emo = str(classifier.get("emotion", CLASSIFICATION_ERROR))
-    inten = str(classifier.get("intensity", CLASSIFICATION_ERROR))
-    stype = str(classifier.get("support_type", CLASSIFICATION_ERROR))
-    comment = classifier.get("comment")
+    # Re-classify emotion for new input with full conversation context (best-effort).
+    # IMPORTANT: never block post-vote chat on classifier. If classifier is down/slow,
+    # we skip classification for prompting purposes (use neutral/medium/both), but
+    # return MODEL_ERROR to the client so the failure is visible.
+    classify_timeout_sec = float(os.environ.get("ARENA_POST_VOTE_CLASSIFY_TIMEOUT_SEC", "12"))
+    classification_failed = False
 
-    # Fallback to safe defaults when classifier fails
-    safe_emo = emo if emo in ALLOWED_EMOTIONS else "neutral"
-    safe_inten = inten if inten in ALLOWED_INTENSITIES else NEUTRAL_INTENSITY
-    safe_stype = stype if stype in ALLOWED_SUPPORT_TYPES else "both"
+    try:
+        classifier = await asyncio.wait_for(
+            _classify_emotion(user_message, conversation_history=combined_history),
+            timeout=classify_timeout_sec,
+        )
+        emo = str(classifier.get("emotion", CLASSIFICATION_ERROR))
+        inten = str(classifier.get("intensity", CLASSIFICATION_ERROR))
+        stype = str(classifier.get("support_type", CLASSIFICATION_ERROR))
+        comment = classifier.get("comment")
+    except Exception as exc:
+        classification_failed = True
+        log_error(
+            error_type="post_vote_emotion_classification_failed",
+            context={
+                "session": session_id,
+                "vote_id": vote_id,
+                "fallback_strategy": "skip_classification",
+                "timeout_sec": classify_timeout_sec,
+            },
+            exc=exc,
+        )
+        # Return explicit classification error values to the client.
+        emo = CLASSIFICATION_ERROR
+        inten = CLASSIFICATION_ERROR
+        stype = CLASSIFICATION_ERROR
+        comment = None
+
+    # For internal template selection/prompting, always use safe defaults if classifier failed/invalid.
+    if classification_failed:
+        safe_emo = "neutral"
+        safe_inten = NEUTRAL_INTENSITY
+        safe_stype = "both"
+    else:
+        safe_emo = emo if emo in ALLOWED_EMOTIONS else "neutral"
+        safe_inten = inten if inten in ALLOWED_INTENSITIES else NEUTRAL_INTENSITY
+        safe_stype = stype if stype in ALLOWED_SUPPORT_TYPES else "both"
 
     # Build system prompt based on winner arm
     if winner_arm == "empathy":

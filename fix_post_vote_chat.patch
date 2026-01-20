@@ -1,0 +1,37 @@
+--- a/app.py
++++ b/app.py
+@@ -2847,10 +2847,29 @@
+         })
+     
+     # Re-classify emotion for new input with full conversation context
+-    classifier = await _classify_emotion(user_message, conversation_history=combined_history)
+-    emo = str(classifier.get("emotion", CLASSIFICATION_ERROR))
+-    inten = str(classifier.get("intensity", CLASSIFICATION_ERROR))
+-    stype = str(classifier.get("support_type", CLASSIFICATION_ERROR))
+-    comment = classifier.get("comment")
++    # Add error handling to prevent 503 errors from blocking post-vote chat
++    try:
++        classifier = await _classify_emotion(user_message, conversation_history=combined_history)
++        emo = str(classifier.get("emotion", CLASSIFICATION_ERROR))
++        inten = str(classifier.get("intensity", CLASSIFICATION_ERROR))
++        stype = str(classifier.get("support_type", CLASSIFICATION_ERROR))
++        comment = classifier.get("comment")
++    except Exception as exc:
++        # Fallback: Use cached emotion classification from session if classifier fails
++        log_error(
++            error_type="post_vote_emotion_classification_failed",
++            context={
++                "session": session_id,
++                "vote_id": vote_id,
++                "fallback_strategy": "use_session_cache"
++            },
++            exc=exc
++        )
++        # Use session's cached emotion values or safe defaults
++        emo = sess.get("emotion", "neutral")
++        inten = sess.get("intensity", "medium")
++        stype = sess.get("support_type", "both")
++        comment = sess.get("classifier_comment")
+ 
+     # Fallback to safe defaults when classifier fails
+     safe_emo = emo if emo in ALLOWED_EMOTIONS else "neutral"
