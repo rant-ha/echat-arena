@@ -64,6 +64,12 @@ REQUEST_TIMEOUT = float(os.environ.get("ARENA_REQUEST_TIMEOUT", "60"))
 MAX_RETRIES = int(os.environ.get("ARENA_MAX_RETRIES", "3"))
 BACKOFF_BASE = float(os.environ.get("ARENA_BACKOFF_BASE", "1"))
 
+# SSE keepalive (Heroku router idle timeout protection)
+SSE_HEARTBEAT_SEC = float(os.environ.get("ARENA_SSE_HEARTBEAT_SEC", "25"))
+
+# Emotion classification timeout (avoid blocking first bytes)
+CLASSIFY_TIMEOUT_SEC = float(os.environ.get("ARENA_CLASSIFY_TIMEOUT_SEC", "12"))
+
 # Labels (align with plan)
 ALLOWED_EMOTIONS = ["anger", "sadness", "anxiety", "fear", "happy", "neutral"]
 ALLOWED_INTENSITIES = ["low", "medium", "high"]
@@ -446,6 +452,11 @@ def _extract_first_json(text: str) -> Optional[Dict[str, Any]]:
 
 def _sse_data(payload: Dict[str, Any]) -> bytes:
     return (f"data: {_json_dumps(payload)}\n\n").encode("utf-8")
+
+
+def _sse_comment(text: str = "keepalive") -> bytes:
+    safe_text = str(text or "keepalive").replace("\n", " ").replace("\r", " ")
+    return (f": {safe_text}\n\n").encode("utf-8")
 
 
 def _pick_models_from_config(model_cfg: Dict[str, Any]) -> Tuple[str, str]:
@@ -847,6 +858,52 @@ async def _classify_emotion(prompt: str, conversation_history: Optional[List[Dic
         out["comment"] = comment.strip()
 
     return out
+
+
+async def _safe_classify_emotion(
+    prompt: str,
+    conversation_history: Optional[List[Dict[str, Any]]] = None,
+    *,
+    timeout_sec: Optional[float] = None,
+    log_context: Optional[Dict[str, Any]] = None,
+) -> Tuple[Dict[str, str], bool]:
+    """Classify emotion with timeout and error isolation.
+
+    Returns:
+        (classifier, failed)
+    """
+    if timeout_sec is None:
+        timeout_sec = CLASSIFY_TIMEOUT_SEC
+
+    default: Dict[str, str] = {
+        "emotion": CLASSIFICATION_ERROR,
+        "intensity": CLASSIFICATION_ERROR,
+        "support_type": CLASSIFICATION_ERROR,
+    }
+
+    try:
+        classifier = await asyncio.wait_for(
+            _classify_emotion(prompt, conversation_history=conversation_history),
+            timeout=timeout_sec,
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        log_error(
+            error_type="emotion_classification_timeout_or_error",
+            context={
+                "timeout_sec": timeout_sec,
+                **(log_context or {}),
+            },
+            exc=exc,
+        )
+        return default, True
+
+    emo = str(classifier.get("emotion", CLASSIFICATION_ERROR))
+    inten = str(classifier.get("intensity", CLASSIFICATION_ERROR))
+    stype = str(classifier.get("support_type", CLASSIFICATION_ERROR))
+    failed = emo == CLASSIFICATION_ERROR or inten == CLASSIFICATION_ERROR or stype == CLASSIFICATION_ERROR
+    return classifier, failed
 
 
 # Keep strictly aligned with EVAL_SYSTEM_PROMPT in run_experiment.py
@@ -1841,6 +1898,31 @@ async def _generate_stream_for_side(
     return "".join(buf)
 
 
+async def _generate_stream_to_queue(
+    model_id: str,
+    messages: List[Dict[str, str]],
+    temperature: float,
+    out_q: "asyncio.Queue[Optional[str]]",
+) -> str:
+    """Generate a single streaming response and push deltas into a queue.
+
+    Always pushes a final None sentinel.
+    """
+    endpoint = _get_endpoint(model_id)
+
+    buf: List[str] = []
+    try:
+        async for delta in _chat_completion_stream(endpoint, messages, temperature=temperature):
+            buf.append(delta)
+            await out_q.put(delta)
+    finally:
+        try:
+            await asyncio.shield(out_q.put(None))
+        except Exception:
+            pass
+    return "".join(buf)
+
+
 async def _battle_sse(req: Request, prompt: str, session_id: str) -> AsyncIterator[bytes]:
     # Controlled single-model A/B: both sides use the same underlying model id
     # Arms denote which system prompt to use: baseline (empty/simple) vs empathy (templated)
@@ -1855,7 +1937,11 @@ async def _battle_sse(req: Request, prompt: str, session_id: str) -> AsyncIterat
     right_model_id = base_model_id
 
     # 1) emotion classification + template selection for empathy arm
-    classifier = await _classify_emotion(prompt)
+    classifier, _ = await _safe_classify_emotion(
+        prompt,
+        timeout_sec=CLASSIFY_TIMEOUT_SEC,
+        log_context={"endpoint": "/api/arena/battle", "session": session_id},
+    )
 
     # Keep API surface aligned with spec: expose flattened fields.
     emo = str(classifier.get("emotion", CLASSIFICATION_ERROR))
@@ -1949,7 +2035,11 @@ async def _battle_sse(req: Request, prompt: str, session_id: str) -> AsyncIterat
         while not (done_sides["left"] and done_sides["right"]):
             if await req.is_disconnected():
                 break
-            side, delta = await q.get()
+            try:
+                side, delta = await asyncio.wait_for(q.get(), timeout=SSE_HEARTBEAT_SEC)
+            except asyncio.TimeoutError:
+                yield _sse_comment()
+                continue
             if delta is None:
                 done_sides[side] = True
                 # Phase 8.2: Unified SSE frame schema - finish frame
@@ -2120,6 +2210,7 @@ async def battle(req: Request, body: Dict[str, Any] = Body(...)) -> StreamingRes
 
     async def event_stream() -> AsyncIterator[bytes]:
         try:
+            yield _sse_comment("init")
             async for chunk in _battle_sse(req, prompt, session_id):
                 yield chunk
         except Exception as exc:
@@ -2174,142 +2265,6 @@ async def continue_battle(req: Request, body: Dict[str, Any] = Body(...)) -> Str
     turn_count = await _SESSION_STORE.get_turn_count(session_id)
     should_warn = turn_count >= 5
 
-    # Retrieve conversation history
-    history = await _SESSION_STORE.get_conversation_history(session_id)
-    
-    # H-02 Fix: Token counting and context management
-    MAX_CONTEXT_TOKENS = 4096  # Adjust based on model
-    RESERVED_TOKENS = 1000  # Reserve for new response
-
-    # Re-classify emotion for new input with conversation history context
-    classifier = await _classify_emotion(user_message, conversation_history=history)
-    emo = str(classifier.get("emotion", CLASSIFICATION_ERROR))
-    inten = str(classifier.get("intensity", CLASSIFICATION_ERROR))
-    stype = str(classifier.get("support_type", CLASSIFICATION_ERROR))
-    comment = classifier.get("comment")
-
-    # Fallback to safe defaults when classifier fails
-    safe_emo = emo if emo in ALLOWED_EMOTIONS else "neutral"
-    safe_inten = inten if inten in ALLOWED_INTENSITIES else NEUTRAL_INTENSITY
-    safe_stype = stype if stype in ALLOWED_SUPPORT_TYPES else "both"
-
-    # Select template for new emotion
-    selected_tpl = _select_template(safe_emo, safe_inten)
-    template_id = selected_tpl.get("template_id") if isinstance(selected_tpl, dict) else None
-    strategy_name = selected_tpl.get("strategy_name") if isinstance(selected_tpl, dict) else None
-    template_snippet = selected_tpl.get("prompt_snippet") if isinstance(selected_tpl, dict) else ""
-    if not isinstance(template_snippet, str) or not template_snippet.strip():
-        template_snippet = "在没有特定模板时，也请保持共情与安全。"
-
-    empathy_system = _build_empathy_system_prompt(safe_emo, safe_inten, safe_stype, template_snippet)
-    baseline_system = "You are a helpful assistant.\n\n" + BASELINE_SAFETY_OVERRIDE
-
-    # Subtask B: persist latest evaluation result for this turn BEFORE generation
-    # (so voting always reads the newest values even if generation partially fails)
-    await _SESSION_STORE.update(
-        session_id,
-        {
-            "last_template_id": template_id,
-            "last_strategy_name": strategy_name,
-        },
-    )
-
-    # Determine which side is baseline/empathy from session
-    left = sess.get("left", {})
-    right = sess.get("right", {})
-    left_arm = left.get("arm", "baseline")
-    right_arm = right.get("arm", "empathy")
-    left_model_id = left.get("model_id", REPLY_MODEL_NAME or BASELINE_MODEL_ID)
-    right_model_id = right.get("model_id", REPLY_MODEL_NAME or EMPATHY_MODEL_ID)
-
-    # Build messages with conversation history
-    # For baseline (left or right depending on arm)
-    baseline_messages: List[Dict[str, str]] = [{"role": "system", "content": baseline_system}]
-    strategy_messages: List[Dict[str, str]] = [{"role": "system", "content": empathy_system}]
-
-    # H-02 Fix: Calculate token usage and truncate if needed
-    history_tokens_baseline = _count_tokens(baseline_system)
-    history_tokens_strategy = _count_tokens(empathy_system)
-    
-    # Build temporary history to calculate tokens
-    truncated_history = history.copy()
-    
-    # Calculate total tokens for history
-    for turn in history:
-        user_msg = turn.get("user", "")
-        reply_a = turn.get("reply_a", "")
-        reply_b = turn.get("reply_b", "")
-        
-        turn_tokens = _count_tokens(user_msg)
-        if left_arm == "baseline":
-            turn_tokens += _count_tokens(reply_a)
-        else:
-            turn_tokens += _count_tokens(reply_b)
-        
-        history_tokens_baseline += turn_tokens
-        history_tokens_strategy += turn_tokens
-    
-    # Add current message tokens
-    current_msg_tokens = _count_tokens(user_message)
-    total_tokens_baseline = history_tokens_baseline + current_msg_tokens
-    total_tokens_strategy = history_tokens_strategy + current_msg_tokens
-    
-    # Truncate from the beginning if exceeds limit
-    history_truncated = False
-    while (total_tokens_baseline > (MAX_CONTEXT_TOKENS - RESERVED_TOKENS) or
-           total_tokens_strategy > (MAX_CONTEXT_TOKENS - RESERVED_TOKENS)) and len(truncated_history) > 0:
-        removed_turn = truncated_history.pop(0)
-        removed_tokens = _count_tokens(removed_turn.get("user", ""))
-        removed_tokens += _count_tokens(removed_turn.get("reply_a", ""))
-        
-        history_tokens_baseline -= removed_tokens
-        history_tokens_strategy -= removed_tokens
-        total_tokens_baseline = history_tokens_baseline + current_msg_tokens
-        total_tokens_strategy = history_tokens_strategy + current_msg_tokens
-        history_truncated = True
-        
-        print(_json_dumps({
-            "t": _utc_now_iso(),
-            "type": "history_truncated",
-            "session": session_id,
-            "removed_turn": removed_turn.get("turn"),
-            "remaining_turns": len(truncated_history),
-            "tokens_baseline": total_tokens_baseline,
-            "tokens_strategy": total_tokens_strategy
-        }))
-
-    # Append historical turns (using truncated history)
-    for turn in truncated_history:
-        user_msg = turn.get("user", "")
-        reply_a = turn.get("reply_a", "")
-        reply_b = turn.get("reply_b", "")
-
-        # Determine which reply corresponds to which arm
-        # reply_a is from left, reply_b is from right
-        baseline_messages.append({"role": "user", "content": user_msg})
-        if left_arm == "baseline":
-            baseline_messages.append({"role": "assistant", "content": reply_a})
-        else:
-            baseline_messages.append({"role": "assistant", "content": reply_b})
-
-        strategy_messages.append({"role": "user", "content": user_msg})
-        if right_arm == "empathy":
-            strategy_messages.append({"role": "assistant", "content": reply_b})
-        else:
-            strategy_messages.append({"role": "assistant", "content": reply_a})
-
-    # Append current user message
-    baseline_messages.append({"role": "user", "content": user_message})
-    strategy_messages.append({"role": "user", "content": user_message})
-
-    # Prepare left/right messages based on arm assignment
-    if left_arm == "baseline":
-        left_messages = baseline_messages
-        right_messages = strategy_messages
-    else:
-        left_messages = strategy_messages
-        right_messages = baseline_messages
-
     headers = {
         "Cache-Control": "no-cache",
         "Connection": "keep-alive",
@@ -2318,6 +2273,161 @@ async def continue_battle(req: Request, body: Dict[str, Any] = Body(...)) -> Str
 
     async def event_stream() -> AsyncIterator[bytes]:
         try:
+            yield _sse_comment("init")
+
+            # Retrieve conversation history
+            history = await _SESSION_STORE.get_conversation_history(session_id)
+
+            # H-02 Fix: Token counting and context management
+            MAX_CONTEXT_TOKENS = 4096  # Adjust based on model
+            RESERVED_TOKENS = 1000  # Reserve for new response
+
+            # Re-classify emotion for new input with conversation history context
+            classifier, _ = await _safe_classify_emotion(
+                user_message,
+                conversation_history=history,
+                timeout_sec=CLASSIFY_TIMEOUT_SEC,
+                log_context={"endpoint": "/api/arena/continue", "session": session_id},
+            )
+            emo = str(classifier.get("emotion", CLASSIFICATION_ERROR))
+            inten = str(classifier.get("intensity", CLASSIFICATION_ERROR))
+            stype = str(classifier.get("support_type", CLASSIFICATION_ERROR))
+            comment = classifier.get("comment")
+
+            # Fallback to safe defaults when classifier fails
+            safe_emo = emo if emo in ALLOWED_EMOTIONS else "neutral"
+            safe_inten = inten if inten in ALLOWED_INTENSITIES else NEUTRAL_INTENSITY
+            safe_stype = stype if stype in ALLOWED_SUPPORT_TYPES else "both"
+
+            # Select template for new emotion
+            selected_tpl = _select_template(safe_emo, safe_inten)
+            template_id = selected_tpl.get("template_id") if isinstance(selected_tpl, dict) else None
+            strategy_name = selected_tpl.get("strategy_name") if isinstance(selected_tpl, dict) else None
+            template_snippet = selected_tpl.get("prompt_snippet") if isinstance(selected_tpl, dict) else ""
+            if not isinstance(template_snippet, str) or not template_snippet.strip():
+                template_snippet = "在没有特定模板时，也请保持共情与安全。"
+
+            empathy_system = _build_empathy_system_prompt(safe_emo, safe_inten, safe_stype, template_snippet)
+            baseline_system = "You are a helpful assistant.\n\n" + BASELINE_SAFETY_OVERRIDE
+
+            # Subtask B: persist latest evaluation result for this turn BEFORE generation
+            # (so voting always reads the newest values even if generation partially fails)
+            await _SESSION_STORE.update(
+                session_id,
+                {
+                    "last_template_id": template_id,
+                    "last_strategy_name": strategy_name,
+                },
+            )
+
+            # Determine which side is baseline/empathy from session
+            left = sess.get("left", {})
+            right = sess.get("right", {})
+            left_arm = left.get("arm", "baseline")
+            right_arm = right.get("arm", "empathy")
+            left_model_id = left.get("model_id", REPLY_MODEL_NAME or BASELINE_MODEL_ID)
+            right_model_id = right.get("model_id", REPLY_MODEL_NAME or EMPATHY_MODEL_ID)
+
+            # Build messages with conversation history
+            # For baseline (left or right depending on arm)
+            baseline_messages: List[Dict[str, str]] = [{"role": "system", "content": baseline_system}]
+            strategy_messages: List[Dict[str, str]] = [{"role": "system", "content": empathy_system}]
+
+            # H-02 Fix: Token counting and context management
+            history_tokens_baseline = _count_tokens(baseline_system)
+            history_tokens_strategy = _count_tokens(empathy_system)
+
+            # Build temporary history to calculate tokens
+            truncated_history = history.copy()
+
+            # Pre-compute per-turn token footprints for baseline/strategy.
+            # IMPORTANT: this must mirror the actual message-building logic below.
+            baseline_turn_tokens_list: List[int] = []
+            strategy_turn_tokens_list: List[int] = []
+
+            for turn in history:
+                user_msg = str(turn.get("user", "") or "")
+                reply_a = str(turn.get("reply_a", "") or "")
+                reply_b = str(turn.get("reply_b", "") or "")
+
+                user_tokens = _count_tokens(user_msg)
+
+                # baseline_messages uses the assistant reply from the side where baseline arm sits.
+                baseline_assistant = reply_a if left_arm == "baseline" else reply_b
+                baseline_turn_tokens = user_tokens + _count_tokens(baseline_assistant)
+
+                # strategy_messages uses the assistant reply from the side where empathy arm sits.
+                strategy_assistant = reply_b if right_arm == "empathy" else reply_a
+                strategy_turn_tokens = user_tokens + _count_tokens(strategy_assistant)
+
+                baseline_turn_tokens_list.append(baseline_turn_tokens)
+                strategy_turn_tokens_list.append(strategy_turn_tokens)
+
+                history_tokens_baseline += baseline_turn_tokens
+                history_tokens_strategy += strategy_turn_tokens
+
+            # Add current message tokens
+            current_msg_tokens = _count_tokens(user_message)
+            total_tokens_baseline = history_tokens_baseline + current_msg_tokens
+            total_tokens_strategy = history_tokens_strategy + current_msg_tokens
+
+            # Truncate from the beginning if exceeds limit
+            history_truncated = False
+            while (total_tokens_baseline > (MAX_CONTEXT_TOKENS - RESERVED_TOKENS) or
+                   total_tokens_strategy > (MAX_CONTEXT_TOKENS - RESERVED_TOKENS)) and len(truncated_history) > 0:
+                removed_turn = truncated_history.pop(0)
+
+                removed_baseline_tokens = baseline_turn_tokens_list.pop(0) if baseline_turn_tokens_list else 0
+                removed_strategy_tokens = strategy_turn_tokens_list.pop(0) if strategy_turn_tokens_list else 0
+
+                history_tokens_baseline -= removed_baseline_tokens
+                history_tokens_strategy -= removed_strategy_tokens
+                total_tokens_baseline = history_tokens_baseline + current_msg_tokens
+                total_tokens_strategy = history_tokens_strategy + current_msg_tokens
+                history_truncated = True
+
+                print(_json_dumps({
+                    "t": _utc_now_iso(),
+                    "type": "history_truncated",
+                    "session": session_id,
+                    "removed_turn": removed_turn.get("turn"),
+                    "remaining_turns": len(truncated_history),
+                    "tokens_baseline": total_tokens_baseline,
+                    "tokens_strategy": total_tokens_strategy
+                }))
+
+            # Append historical turns (using truncated history)
+            for turn in truncated_history:
+                user_msg = turn.get("user", "")
+                reply_a = turn.get("reply_a", "")
+                reply_b = turn.get("reply_b", "")
+
+                # Determine which reply corresponds to which arm
+                # reply_a is from left, reply_b is from right
+                baseline_messages.append({"role": "user", "content": user_msg})
+                if left_arm == "baseline":
+                    baseline_messages.append({"role": "assistant", "content": reply_a})
+                else:
+                    baseline_messages.append({"role": "assistant", "content": reply_b})
+
+                strategy_messages.append({"role": "user", "content": user_msg})
+                if right_arm == "empathy":
+                    strategy_messages.append({"role": "assistant", "content": reply_b})
+                else:
+                    strategy_messages.append({"role": "assistant", "content": reply_a})
+
+            # Append current user message
+            baseline_messages.append({"role": "user", "content": user_message})
+            strategy_messages.append({"role": "user", "content": user_message})
+
+            # Prepare left/right messages based on arm assignment
+            if left_arm == "baseline":
+                left_messages = baseline_messages
+                right_messages = strategy_messages
+            else:
+                left_messages = strategy_messages
+                right_messages = baseline_messages
+
             # Phase 8.2: Unified SSE frame schema - meta frame
             meta: Dict[str, Any] = {
                 "type": "meta",
@@ -2336,7 +2446,7 @@ async def continue_battle(req: Request, body: Dict[str, Any] = Body(...)) -> Str
             }
             if isinstance(comment, str) and comment.strip():
                 meta["classifier_comment"] = comment.strip()
-            
+
             yield _sse_data(meta)
 
             # Send warning if turn count >= 5
@@ -2372,7 +2482,11 @@ async def continue_battle(req: Request, body: Dict[str, Any] = Body(...)) -> Str
             while not (done_sides["left"] and done_sides["right"]):
                 if await req.is_disconnected():
                     break
-                side, delta = await q.get()
+                try:
+                    side, delta = await asyncio.wait_for(q.get(), timeout=SSE_HEARTBEAT_SEC)
+                except asyncio.TimeoutError:
+                    yield _sse_comment()
+                    continue
                 if delta is None:
                     done_sides[side] = True
                     # Phase 8.2: Unified SSE frame schema - finish frame
@@ -2995,7 +3109,10 @@ async def post_vote_chat(req: Request, body: Dict[str, Any] = Body(...)) -> Stre
     }
 
     async def event_stream() -> AsyncIterator[bytes]:
+        q: "asyncio.Queue[Optional[str]]" = asyncio.Queue()
+        gen_task: Optional[asyncio.Task[str]] = None
         try:
+            yield _sse_comment("init")
             # Phase 8.2: Unified SSE frame schema - meta frame
             meta: Dict[str, Any] = {
                 "type": "meta",
@@ -3016,12 +3133,29 @@ async def post_vote_chat(req: Request, body: Dict[str, Any] = Body(...)) -> Stre
             
             yield _sse_data(meta)
 
-            # Generate response
-            endpoint = _get_endpoint(winner_model_id)
+            # Generate response (with heartbeat)
             assistant_text_parts: List[str] = []
-            
-            # Phase 8.2: Unified SSE frame schema - delta frames
-            async for delta in _chat_completion_stream(endpoint, messages, temperature=0.2):
+
+            gen_task = asyncio.create_task(
+                _generate_stream_to_queue(
+                    winner_model_id,
+                    messages,
+                    temperature=0.2,
+                    out_q=q,
+                )
+            )
+
+            while True:
+                if await req.is_disconnected():
+                    break
+                try:
+                    delta = await asyncio.wait_for(q.get(), timeout=SSE_HEARTBEAT_SEC)
+                except asyncio.TimeoutError:
+                    yield _sse_comment()
+                    continue
+                if delta is None:
+                    break
+
                 assistant_text_parts.append(delta)
                 yield _sse_data({
                     "type": "delta",
@@ -3029,15 +3163,19 @@ async def post_vote_chat(req: Request, body: Dict[str, Any] = Body(...)) -> Stre
                     "delta": delta,
                     "finish": False
                 })
-            
+
+            if await req.is_disconnected():
+                return
+
+            # Ensure any generator exception is retrieved
+            assistant_text = await gen_task
+
             # Phase 8.2: Unified SSE frame schema - finish frame
             yield _sse_data({
                 "type": "finish",
                 "side": winner_side,
                 "finish": True
             })
-            
-            assistant_text = "".join(assistant_text_parts)
 
             # Write to database (concurrency-safe): retry on UNIQUE(vote_id, turn_index) conflict
             base_turn_index = len(post_vote_turns) + 1
@@ -3105,6 +3243,9 @@ async def post_vote_chat(req: Request, body: Dict[str, Any] = Body(...)) -> Stre
                 context={"session": session_id, "vote_id": vote_id},
                 exc=exc
             )
+        finally:
+            if gen_task is not None and not gen_task.done():
+                gen_task.cancel()
 
     return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)
 
