@@ -80,6 +80,19 @@ CREATE POLICY "Allow service role full access to arena_sessions"
     USING (true);
 ```
 
+改为更安全的做法：启用 RLS，但不要为 public/anon 添加任何允许访问的 Policy。Supabase 的 Service Role key 自动绕过 RLS，后端使用该 key 即可读写表。
+
+```sql
+-- 启用 RLS（必须）
+ALTER TABLE arena_sessions ENABLE ROW LEVEL SECURITY;
+
+-- 如之前误添加过过度开放的策略，先删除它（若不存在则忽略）
+DROP POLICY IF EXISTS "Allow service role full access to arena_sessions" ON arena_sessions;
+
+-- 注意：不要为 public/anon 创建允许读写的 POLICY；只要开启了 RLS 且不为普通用户添加策略，
+-- 普通前端/匿名用户将被拒绝访问，只有使用 Service Role key 的后端能访问该表。
+```
+
 #### 3.1.3 设置定时任务（可选）
 
 如果启用了 pg_cron 扩展，可以设置自动清理任务：

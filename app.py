@@ -3207,7 +3207,7 @@ async def continue_battle(req: Request, body: Dict[str, Any] = Body(...)) -> Str
                 "support_type": stype,
                 "ts": _utc_now_iso(),
                 "turn": turn_count + 1,
-                "tokens_used": max(total_tokens_baseline, total_tokens_strategy),
+                "tokens_used": max(total_tokens_left, total_tokens_right),
                 "history_truncated": history_truncated,
             }
             if isinstance(comment, str) and comment.strip():
