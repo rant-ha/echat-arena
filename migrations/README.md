@@ -11,6 +11,7 @@ migrations/
 ├── add_jsonb_indexes.sql              # JSONB 字段索引优化
 ├── add_post_vote_chat.sql             # 添加投票后继续对话支持（Phase 8.2）
 ├── add_vote_idempotency.sql           # 添加投票幂等性约束（Phase 8.3）
+├── add_arena_sessions_table.sql       # 添加会话持久化表（Phase 9.1）
 ├── verify_schema.sql                   # 验证迁移成功的脚本
 └── rollback_conversation_history.sql   # 回滚迁移的脚本
 ```
@@ -366,6 +367,289 @@ CREATE INDEX IF NOT EXISTS idx_votes_turn_count ON votes(turn_count);
 1. **投票后对话**：用户投票后可与获胜模型继续对话
 2. **数据隔离**：投票后对话与实验数据分离，不影响数据分析
 3. **历史回溯**：完整记录用户与获胜模型的后续交互
+
+---
+
+## Phase 9.1：会话持久化支持
+
+### 概述
+
+此迁移创建 `arena_sessions` 表，用于持久化存储会话状态，解决 Heroku dyno 重启和多实例部署导致的会话丢失问题。同时支持软删除功能和单侧上下文隔离。
+
+### 迁移文件
+
+#### [`add_arena_sessions_table.sql`](add_arena_sessions_table.sql:1)
+
+**功能：**
+- 创建 `arena_sessions` 表存储完整会话数据
+- 添加乐观锁支持（version 字段）
+- 添加 TTL 支持（expires_at 字段）
+- 添加软删除支持（deleted_at 字段）
+- 创建必要的索引和触发器
+
+**表结构：**
+
+| 字段 | 类型 | 说明 |
+|-------|------|------|
+| `session_id` | TEXT | 主键，会话唯一标识 |
+| `session_data` | JSONB | 完整会话数据（包含上下文、对话历史等） |
+| `version` | BIGINT | 乐观锁版本号 |
+| `expires_at` | TIMESTAMPTZ | 会话过期时间 |
+| `deleted_at` | TIMESTAMPTZ | 软删除时间标记 |
+| `created_at` | TIMESTAMPTZ | 创建时间 |
+| `updated_at` | TIMESTAMPTZ | 最后更新时间 |
+
+**索引：**
+- `idx_arena_sessions_expires_at`: 按过期时间查询（用于清理）
+- `idx_arena_sessions_deleted_at`: 按删除时间查询（用于软删除管理）
+
+**触发器：**
+- `trigger_update_updated_at`: 自动更新 updated_at 字段
+
+**函数：**
+- `cleanup_expired_sessions()`: 清理过期会话
+- `cleanup_old_deleted_sessions(days_threshold)`: 清理旧的软删除会话
+
+**执行方式：**
+在 Supabase Dashboard 的 SQL Editor 中执行此脚本。
+
+**使用场景：**
+1. **会话持久化**：解决内存会话在重启后丢失的问题
+2. **多实例支持**：多个应用实例可以共享会话状态
+3. **软删除**：允许用户删除会话但保留数据可恢复
+4. **单侧上下文隔离**：每个模型只能看到自己的对话历史
+
+### 数据结构详解
+
+#### session_data JSONB 结构
+
+```json
+{
+  "session_id": "abc123",
+  "prompt": "用户提示",
+  "left": {
+    "arm": "left",
+    "model_id": "model_a",
+    "text": "模型A的回复",
+    "context": [
+      {"role": "user", "content": "用户消息1"},
+      {"role": "assistant", "content": "模型A的回复1"}
+    ]
+  },
+  "right": {
+    "arm": "right",
+    "model_id": "model_b",
+    "text": "模型B的回复",
+    "context": [
+      {"role": "user", "content": "用户消息1"},
+      {"role": "assistant", "content": "模型B的回复1"}
+    ]
+  },
+  "conversation_history": [
+    {
+      "turn": 1,
+      "user_msg": "用户消息1",
+      "reply_a": "模型A的回复1",
+      "reply_b": "模型B的回复1",
+      "timestamp": "2023-01-01T00:00:00Z"
+    }
+  ],
+  "turn_count": 1,
+  "version": 1,
+  "created_at": "2023-01-01T00:00:00Z",
+  "winner": null,
+  "vote_id": null,
+  "template_id": "template1",
+  "strategy_name": "strategy1",
+  "last_template_id": "template1",
+  "last_strategy_name": "strategy1",
+  "emotion": "neutral",
+  "intensity": "medium",
+  "support_type": "neutral",
+  "classifier_comment": "分类注释",
+  "ai_scores": {}
+}
+```
+
+**关键设计点**：
+- `left.context` 和 `right.context`: 每个模型独立的上下文，实现单侧上下文隔离
+- `conversation_history`: 完整对话历史，用于投票和审计
+- `version`: 乐观锁版本号，用于并发控制
+- `deleted_at`: 软删除标记，允许数据恢复
+
+### 并发控制机制
+
+本表使用**乐观锁**机制处理并发更新：
+
+1. **读取**：获取当前 `version`
+2. **修改**：基于当前数据构造新状态
+3. **写入**：仅当 `version` 未变化时更新（CAS 操作）
+4. **冲突**：如果 `version` 不匹配，操作失败，需要重试
+
+**示例 SQL**：
+```sql
+-- CAS 更新示例
+UPDATE arena_sessions
+SET 
+  session_data = '{"key": "new_value"}'::jsonb,
+  version = version + 1,
+  updated_at = NOW()
+WHERE 
+  session_id = 'abc123' 
+  AND version = 5  -- 期望的版本
+  AND deleted_at IS NULL;  -- 仅更新未删除的会话
+```
+
+### 软删除管理
+
+#### 软删除操作
+```sql
+-- 标记会话为已删除
+UPDATE arena_sessions
+SET deleted_at = NOW()
+WHERE session_id = 'abc123';
+```
+
+#### 恢复操作
+```sql
+-- 恢复被删除的会话
+UPDATE arena_sessions
+SET deleted_at = NULL
+WHERE session_id = 'abc123';
+```
+
+#### 清理操作
+```sql
+-- 清理超过30天的软删除会话
+SELECT cleanup_old_deleted_sessions(30);
+```
+
+### TTL 管理
+
+#### 自动过期
+- 每次写入操作更新 `expires_at = NOW() + TTL`
+- 过期会话被视为不存在（但不立即删除）
+- 定期任务清理过期会话
+
+#### 清理过期会话
+```sql
+-- 手动清理过期会话
+SELECT cleanup_expired_sessions();
+
+-- 使用 pg_cron 自动清理（推荐）
+SELECT cron.schedule('cleanup-expired-sessions', '0 3 * * *', $$
+  DELETE FROM arena_sessions WHERE expires_at < NOW() AND deleted_at IS NULL;
+$$);
+```
+
+### 迁移执行步骤
+
+1. **执行迁移脚本**
+   ```sql
+   -- 复制 add_arena_sessions_table.sql 的内容并执行
+   ```
+
+2. **验证迁移**
+   ```sql
+   -- 检查表是否创建成功
+   SELECT table_name 
+   FROM information_schema.tables 
+   WHERE table_name = 'arena_sessions';
+   
+   -- 检查索引是否创建成功
+   SELECT indexname 
+   FROM pg_indexes 
+   WHERE tablename = 'arena_sessions';
+   ```
+
+3. **配置应用程序**
+   - 设置环境变量 `ARENA_SESSION_STORE=supabase`
+   - 配置 Supabase 连接信息
+   - 部署更新后的应用代码
+
+4. **测试验证**
+   - 测试会话持久化功能
+   - 测试多实例一致性
+   - 测试软删除和恢复功能
+   - 测试单侧上下文隔离
+
+### 兼容性考虑
+
+#### 现有数据
+- 新表独立于现有 `votes` 表，无兼容性问题
+- 旧的内存会话不会自动迁移（用户需要重新开始对话）
+
+#### 应用程序兼容性
+- 所有现有接口保持向后兼容
+- 新功能为增量添加，不影响现有流程
+- 提供降级机制（如 Supabase 失败，可降级到内存存储）
+
+### 性能优化建议
+
+1. **缓存策略**
+   - 使用本地 LRU 缓存减少 DB 读取
+   - 缓存 TTL 设置为 10-60 秒
+
+2. **批量操作**
+   - 对于管理员操作，使用批量查询和更新
+   - 避免在热路径中进行复杂 JSONB 操作
+
+3. **索引优化**
+   - 根据实际查询模式添加额外索引
+   - 考虑对常用 JSONB 字段创建表达式索引
+
+### 故障排查
+
+#### 问题：迁移执行失败
+
+**可能原因：**
+- 表已存在（重复执行迁移）
+- 权限不足
+
+**解决方案：**
+```sql
+-- 检查表是否已存在
+SELECT table_name 
+FROM information_schema.tables 
+WHERE table_name = 'arena_sessions';
+```
+
+如果表已存在，迁移已完成，无需重复执行。
+
+#### 问题：并发冲突频繁
+
+**可能原因：**
+- 高并发写入同一会话
+- 重试策略不合理
+
+**解决方案：**
+1. 优化重试策略（调整重试次数和间隔）
+2. 检查业务逻辑，减少并发写入
+3. 考虑使用悲观锁（如 Redis 锁）
+
+#### 问题：性能下降
+
+**可能原因：**
+- 索引缺失
+- JSONB 操作复杂
+
+**解决方案：**
+```sql
+-- 检查索引使用情况
+EXPLAIN ANALYZE 
+SELECT * FROM arena_sessions 
+WHERE session_id = 'abc123';
+
+-- 考虑添加额外索引
+CREATE INDEX IF NOT EXISTS idx_arena_sessions_session_data_field 
+ON arena_sessions (((session_data->>'field_name')));
+```
+
+### 相关文档
+
+- [完整设计文档](../plans/sessionstore_supabase_complete_design.md) - 详细设计和实现方案
+- [部署指南](../DEPLOYMENT_GUIDE.md) - 完整的部署和迁移步骤
+- [应用代码](../app.py) - 后端实现细节
 
 ---
 

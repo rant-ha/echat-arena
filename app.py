@@ -1403,7 +1403,754 @@ class SessionStore:
             self._sessions.pop(sid, None)
 
 
-_SESSION_STORE = SessionStore()
+class SupabaseSessionStore(SessionStore):
+    """Supabase-backed SessionStore with soft deletion and single-side context isolation support."""
+    
+    def __init__(self) -> None:
+        super().__init__()
+        self._supabase_url = SUPABASE_URL
+        self._supabase_key = SUPABASE_SERVICE_KEY
+        self._request_timeout = float(os.environ.get("ARENA_REQUEST_TIMEOUT", "60"))
+        self._local_cache = {}  # Simple in-memory cache for hot sessions
+        self._cache_ttl = int(os.environ.get("ARENA_CACHE_TTL_SEC", "60"))  # 60 seconds cache
+        
+        # Configuration for session store mode
+        self._store_mode = os.environ.get("ARENA_SESSION_STORE", "memory").lower()
+        self._allow_fallback = os.environ.get("ARENA_ALLOW_FALLBACK", "true").lower() in {"1", "true", "yes", "y", "on"}
+        
+        print(f"[INFO] SessionStore initialized in {self._store_mode} mode", file=sys.stderr)
+        if self._store_mode == "supabase" and not self._supabase_url:
+            print("[WARN] Supabase mode enabled but SUPABASE_URL not configured, falling back to memory", file=sys.stderr)
+            self._store_mode = "memory"
+    
+    def _get_headers(self) -> Dict[str, str]:
+        """Get standard Supabase headers."""
+        return {
+            "apikey": self._supabase_key,
+            "Authorization": f"Bearer {self._supabase_key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal"
+        }
+    
+    def _is_supabase_available(self) -> bool:
+        """Check if Supabase is configured and available."""
+        return (self._store_mode == "supabase" and 
+                self._supabase_url and 
+                self._supabase_key)
+    
+    def _is_expired(self, session_data: Dict[str, Any]) -> bool:
+        """Check if session is expired based on expires_at."""
+        expires_at_str = session_data.get("expires_at")
+        if not expires_at_str:
+            return False
+        
+        try:
+            expires_at = datetime.fromisoformat(expires_at_str.replace("Z", "+00:00"))
+            return datetime.now(expires_at.tzinfo) >= expires_at
+        except (ValueError, TypeError):
+            return False
+    
+    def _get_cache_key(self, session_id: str) -> str:
+        """Get cache key for session."""
+        return f"session:{session_id}"
+    
+    def _cache_get(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Get session from local cache."""
+        cache_key = self._get_cache_key(session_id)
+        cached = self._local_cache.get(cache_key)
+        if cached:
+            cache_time = cached.get("_cache_time")
+            if cache_time and (time.time() - cache_time) < self._cache_ttl:
+                return cached.get("session_data")
+        return None
+    
+    def _cache_set(self, session_id: str, session_data: Dict[str, Any]) -> None:
+        """Set session in local cache."""
+        cache_key = self._get_cache_key(session_id)
+        self._local_cache[cache_key] = {
+            "session_data": session_data,
+            "_cache_time": time.time()
+        }
+    
+    def _cache_delete(self, session_id: str) -> None:
+        """Delete session from local cache."""
+        cache_key = self._get_cache_key(session_id)
+        self._local_cache.pop(cache_key, None)
+    
+    async def _supabase_get(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Get session from Supabase."""
+        if not self._is_supabase_available():
+            return None
+        
+        url = f"{self._supabase_url}/rest/v1/arena_sessions?session_id=eq.{session_id}&deleted_at=is.null"
+        headers = self._get_headers()
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, headers=headers, timeout=self._request_timeout)
+                if resp.status_code >= 400:
+                    print(_json_dumps({
+                        "t": _utc_now_iso(),
+                        "type": "supabase_get_error",
+                        "session_id": session_id,
+                        "status": resp.status_code,
+                        "error": resp.text
+                    }), file=sys.stderr)
+                    return None
+                
+                data = resp.json()
+                if not data:
+                    return None
+                
+                return data[0]
+        except Exception as exc:
+            print(_json_dumps({
+                "t": _utc_now_iso(),
+                "type": "supabase_get_exception",
+                "session_id": session_id,
+                "error": str(exc)
+            }), file=sys.stderr)
+            return None
+    
+    async def _supabase_cas_update(
+        self, 
+        session_id: str, 
+        old_version: int, 
+        new_data: Dict[str, Any],
+        create_if_not_exists: bool = False
+    ) -> bool:
+        """Perform CAS (Compare-And-Swap) update on Supabase.
+        
+        Args:
+            session_id: Session ID
+            old_version: Expected current version
+            new_data: New session data to store
+            create_if_not_exists: Whether to create if session doesn't exist
+            
+        Returns:
+            True if update succeeded, False if failed (version mismatch or error)
+        """
+        if not self._is_supabase_available():
+            return False
+        
+        # Prepare update data
+        update_data = {
+            "session_data": new_data,
+            "version": old_version + 1,
+            "expires_at": (datetime.now() + timedelta(seconds=_SESSION_TTL_SEC)).isoformat(),
+            "updated_at": _utc_now_iso()
+        }
+        
+        # Build query conditions
+        conditions = [f"session_id=eq.{session_id}"]
+        if create_if_not_exists:
+            # For initial creation, we don't check version
+            conditions.append("deleted_at=is.null")
+        else:
+            # For updates, we check version for CAS
+            conditions.append(f"version=eq.{old_version}")
+            conditions.append("deleted_at=is.null")
+        
+        query = "&".join(conditions)
+        url = f"{self._supabase_url}/rest/v1/arena_sessions?{query}"
+        headers = self._get_headers()
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                if create_if_not_exists:
+                    # Use POST for creation (upsert behavior)
+                    resp = await client.post(
+                        url,
+                        headers=headers,
+                        json=update_data,
+                        timeout=self._request_timeout
+                    )
+                else:
+                    # Use PATCH for updates
+                    resp = await client.patch(
+                        url,
+                        headers=headers,
+                        json=update_data,
+                        timeout=self._request_timeout
+                    )
+                
+                if resp.status_code < 400:
+                    return True
+                
+                # Log detailed error for debugging
+                error_details = {
+                    "t": _utc_now_iso(),
+                    "type": "supabase_cas_update_error",
+                    "session_id": session_id,
+                    "old_version": old_version,
+                    "new_version": old_version + 1,
+                    "status": resp.status_code,
+                    "response": resp.text,
+                    "method": "POST" if create_if_not_exists else "PATCH"
+                }
+                
+                # Check for version conflict (common case)
+                if resp.status_code == 409 or "version" in (resp.text or "").lower():
+                    error_details["reason"] = "version_conflict"
+                
+                print(_json_dumps(error_details), file=sys.stderr)
+                return False
+        except Exception as exc:
+            print(_json_dumps({
+                "t": _utc_now_iso(),
+                "type": "supabase_cas_update_exception",
+                "session_id": session_id,
+                "old_version": old_version,
+                "error": str(exc)
+            }), file=sys.stderr)
+            return False
+    
+    async def _build_side_context(self, session_data: Dict[str, Any], side: str) -> List[Dict[str, str]]:
+        """Build single-side context for a model.
+        
+        Args:
+            session_data: Complete session data
+            side: 'left' or 'right'
+            
+        Returns:
+            List of context messages for the specified side
+        """
+        if side not in ['left', 'right']:
+            raise ValueError(f"Invalid side: {side}")
+        
+        side_data = session_data.get(side, {})
+        context = side_data.get('context', [])
+        
+        # Ensure context is a list
+        if not isinstance(context, list):
+            context = []
+        
+        return context
+    
+    async def put(self, session_id: str, value: Dict[str, Any]) -> None:
+        """Store a new session with Supabase persistence."""
+        # Initialize required fields
+        if "conversation_history" not in value:
+            value["conversation_history"] = []
+        if "turn_count" not in value:
+            value["turn_count"] = 0
+        if "version" not in value:
+            value["version"] = 0
+        
+        # Initialize single-side contexts if not present
+        if "left" not in value or "context" not in value.get("left", {}):
+            if "left" not in value:
+                value["left"] = {}
+            value["left"]["context"] = []
+        
+        if "right" not in value or "context" not in value.get("right", {}):
+            if "right" not in value:
+                value["right"] = {}
+            value["right"]["context"] = []
+        
+        # Try Supabase first if available
+        if self._is_supabase_available():
+            success = await self._supabase_cas_update(session_id, 0, value, create_if_not_exists=True)
+            if success:
+                # Update local cache
+                self._cache_set(session_id, value)
+                return
+            elif not self._allow_fallback:
+                print(_json_dumps({
+                    "t": _utc_now_iso(),
+                    "type": "supabase_put_failed_no_fallback",
+                    "session_id": session_id
+                }), file=sys.stderr)
+                return
+        
+        # Fallback to memory store
+        print(_json_dumps({
+            "t": _utc_now_iso(),
+            "type": "session_store_fallback_to_memory",
+            "session_id": session_id,
+            "reason": "supabase_unavailable" if self._is_supabase_available() else "supabase_not_configured"
+        }), file=sys.stderr)
+        
+        async with self._lock:
+            value["_ts"] = time.time()  # For memory store compatibility
+            self._sessions[session_id] = value
+            await self._gc_locked()
+    
+    async def get(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Get session with Supabase persistence support."""
+        # 1. Try local cache first
+        cached = self._cache_get(session_id)
+        if cached:
+            return cached
+        
+        # 2. Try Supabase if available
+        if self._is_supabase_available():
+            supabase_session = await self._supabase_get(session_id)
+            if supabase_session:
+                # Check TTL
+                if self._is_expired(supabase_session):
+                    # Session expired, try to delete it
+                    await self._supabase_soft_delete_internal(session_id)
+                    return None
+                
+                # Update cache and return
+                session_data = supabase_session["session_data"]
+                self._cache_set(session_id, session_data)
+                return session_data
+        
+        # 3. Fallback to memory store
+        async with self._lock:
+            item = self._sessions.get(session_id)
+            if not item:
+                return None
+            if time.time() - float(item.get("_ts", 0)) > _SESSION_TTL_SEC:
+                self._sessions.pop(session_id, None)
+                return None
+            return item
+    
+    async def update(self, session_id: str, patch: Dict[str, Any]) -> None:
+        """Update session with Supabase persistence support."""
+        max_retries = 3
+        
+        for attempt in range(max_retries):
+            # 1. Get current session
+            session = await self.get(session_id)
+            if session is None:
+                return
+            
+            # 2. Apply patch
+            new_session_data = {**session, **patch}
+            current_version = session.get("version", 0)
+            
+            # 3. Try Supabase update if available
+            if self._is_supabase_available():
+                success = await self._supabase_cas_update(
+                    session_id, 
+                    current_version, 
+                    new_session_data
+                )
+                
+                if success:
+                    # Update cache
+                    self._cache_set(session_id, new_session_data)
+                    return
+                elif not self._allow_fallback:
+                    print(_json_dumps({
+                        "t": _utc_now_iso(),
+                        "type": "supabase_update_failed_no_fallback",
+                        "session_id": session_id,
+                        "attempt": attempt + 1
+                    }), file=sys.stderr)
+                    return
+            
+            # 4. Fallback to memory store or retry
+            if self._is_supabase_available() and attempt < max_retries - 1:
+                # Retry with exponential backoff
+                await asyncio.sleep(0.1 * (attempt + 1))
+                continue
+            
+            # Fallback to memory store
+            print(_json_dumps({
+                "t": _utc_now_iso(),
+                "type": "session_update_fallback_to_memory",
+                "session_id": session_id,
+                "attempt": attempt + 1
+            }), file=sys.stderr)
+            
+            async with self._lock:
+                item = self._sessions.get(session_id)
+                if item:
+                    item.update(patch)
+                    item["_ts"] = time.time()
+                    item["version"] = current_version + 1
+                    self._sessions[session_id] = item
+                    await self._gc_locked()
+            return
+    
+    async def append_turn(
+        self,
+        session_id: str,
+        user_msg: str,
+        reply_a: str,
+        reply_b: str,
+    ) -> bool:
+        """Append a conversation turn with single-side context isolation and CAS."""
+        max_retries = 3
+        
+        for attempt in range(max_retries):
+            # 1. Get current session
+            session = await self.get(session_id)
+            if session is None:
+                print(_json_dumps({
+                    "t": _utc_now_iso(),
+                    "type": "append_turn_error",
+                    "session": session_id,
+                    "reason": "session_not_found"
+                }), file=sys.stderr)
+                return False
+            
+            # 2. Build single-side contexts
+            current_version = session.get("version", 0)
+            
+            # Get current contexts
+            left_context = await self._build_side_context(session, 'left')
+            right_context = await self._build_side_context(session, 'right')
+            
+            # Add user message to both sides
+            left_context.append({"role": "user", "content": user_msg})
+            right_context.append({"role": "user", "content": user_msg})
+            
+            # Add model-specific replies
+            if reply_a:
+                left_context.append({"role": "assistant", "content": reply_a})
+            if reply_b:
+                right_context.append({"role": "assistant", "content": reply_b})
+            
+            # 3. Prepare new session data
+            new_session_data = {
+                **session,
+                'left': {
+                    **session.get('left', {}),
+                    'context': left_context
+                },
+                'right': {
+                    **session.get('right', {}),
+                    'context': right_context
+                },
+                'turn_count': session.get('turn_count', 0) + 1,
+                'version': current_version + 1
+            }
+            
+            # 4. Append to complete conversation history
+            conversation_history = session.get('conversation_history', [])
+            expected_turn = len(conversation_history) + 1
+            
+            # Verify turn continuity
+            if len(conversation_history) != session.get('turn_count', 0):
+                print(_json_dumps({
+                    "t": _utc_now_iso(),
+                    "type": "append_turn_warning",
+                    "session": session_id,
+                    "history_length": len(conversation_history),
+                    "turn_count": session.get('turn_count', 0),
+                    "action": "auto_repair"
+                }), file=sys.stderr)
+                # Auto-repair
+                new_session_data['turn_count'] = len(conversation_history)
+                expected_turn = len(conversation_history) + 1
+            
+            # Create turn record
+            turn_record = {
+                "turn": expected_turn,
+                "user": user_msg,
+                "reply_a": reply_a,
+                "reply_b": reply_b,
+                "timestamp": _utc_now_iso(),
+            }
+            
+            conversation_history.append(turn_record)
+            new_session_data['conversation_history'] = conversation_history
+            
+            # 5. Try Supabase update
+            if self._is_supabase_available():
+                success = await self._supabase_cas_update(
+                    session_id,
+                    current_version,
+                    new_session_data
+                )
+                
+                if success:
+                    # Update cache
+                    self._cache_set(session_id, new_session_data)
+                    
+                    print(_json_dumps({
+                        "t": _utc_now_iso(),
+                        "type": "append_turn_success",
+                        "session": session_id,
+                        "turn": expected_turn,
+                        "version": new_session_data["version"]
+                    }))
+                    return True
+                elif not self._allow_fallback:
+                    print(_json_dumps({
+                        "t": _utc_now_iso(),
+                        "type": "supabase_append_turn_failed_no_fallback",
+                        "session_id": session_id,
+                        "attempt": attempt + 1
+                    }), file=sys.stderr)
+                    return False
+            
+            # 6. Retry or fallback
+            if self._is_supabase_available() and attempt < max_retries - 1:
+                await asyncio.sleep(0.1 * (attempt + 1))
+                continue
+            
+            # Fallback to memory store
+            print(_json_dumps({
+                "t": _utc_now_iso(),
+                "type": "append_turn_fallback_to_memory",
+                "session_id": session_id,
+                "attempt": attempt + 1
+            }), file=sys.stderr)
+            
+            async with self._lock:
+                item = self._sessions.get(session_id)
+                if item:
+                    # Update with new data
+                    item.update(new_session_data)
+                    item["_ts"] = time.time()
+                    self._sessions[session_id] = item
+                    await self._gc_locked()
+                    return True
+            
+            return False
+    
+    async def get_conversation_history(self, session_id: str) -> List[Dict[str, Any]]:
+        """Retrieve the complete conversation history for a session."""
+        session = await self.get(session_id)
+        if session is None:
+            return []
+        return session.get("conversation_history", [])
+    
+    async def get_turn_count(self, session_id: str) -> int:
+        """Get the current turn count for a session."""
+        session = await self.get(session_id)
+        if session is None:
+            return 0
+        return session.get("turn_count", 0)
+    
+    async def _supabase_soft_delete_internal(self, session_id: str) -> bool:
+        """Internal method for soft deleting a session in Supabase."""
+        if not self._is_supabase_available():
+            return False
+        
+        url = f"{self._supabase_url}/rest/v1/arena_sessions?session_id=eq.{session_id}&deleted_at=is.null"
+        headers = self._get_headers()
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.patch(
+                    url,
+                    headers=headers,
+                    json={"deleted_at": _utc_now_iso()},
+                    timeout=self._request_timeout
+                )
+                
+                if resp.status_code < 400:
+                    # Clear cache
+                    self._cache_delete(session_id)
+                    return True
+                
+                print(_json_dumps({
+                    "t": _utc_now_iso(),
+                    "type": "supabase_soft_delete_error",
+                    "session_id": session_id,
+                    "status": resp.status_code,
+                    "response": resp.text
+                }), file=sys.stderr)
+                return False
+        except Exception as exc:
+            print(_json_dumps({
+                "t": _utc_now_iso(),
+                "type": "supabase_soft_delete_exception",
+                "session_id": session_id,
+                "error": str(exc)
+            }), file=sys.stderr)
+            return False
+    
+    async def soft_delete(self, session_id: str) -> bool:
+        """Soft delete a session - mark as deleted but keep data recoverable."""
+        if not self._is_supabase_available():
+            return False
+        
+        return await self._supabase_soft_delete_internal(session_id)
+    
+    async def restore_session(self, session_id: str) -> bool:
+        """Restore a soft-deleted session."""
+        if not self._is_supabase_available():
+            return False
+        
+        url = f"{self._supabase_url}/rest/v1/arena_sessions?session_id=eq.{session_id}"
+        headers = self._get_headers()
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.patch(
+                    url,
+                    headers=headers,
+                    json={"deleted_at": None},
+                    timeout=self._request_timeout
+                )
+                
+                if resp.status_code < 400:
+                    # Clear cache so next get will fetch fresh data
+                    self._cache_delete(session_id)
+                    return True
+                
+                print(_json_dumps({
+                    "t": _utc_now_iso(),
+                    "type": "supabase_restore_error",
+                    "session_id": session_id,
+                    "status": resp.status_code,
+                    "response": resp.text
+                }), file=sys.stderr)
+                return False
+        except Exception as exc:
+            print(_json_dumps({
+                "t": _utc_now_iso(),
+                "type": "supabase_restore_exception",
+                "session_id": session_id,
+                "error": str(exc)
+            }), file=sys.stderr)
+            return False
+    
+    async def cleanup_deleted_sessions(self, max_age_days: int = 30) -> int:
+        """Clean up sessions that have been soft-deleted for more than max_age_days."""
+        if not self._is_supabase_available():
+            return 0
+        
+        cutoff_date = (datetime.now() - timedelta(days=max_age_days)).isoformat()
+        
+        # First, query sessions to delete
+        url = f"{self._supabase_url}/rest/v1/arena_sessions?deleted_at=lt.{cutoff_date}"
+        headers = self._get_headers()
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                # Get sessions to delete
+                resp = await client.get(url, headers=headers, timeout=self._request_timeout)
+                if resp.status_code >= 400:
+                    print(_json_dumps({
+                        "t": _utc_now_iso(),
+                        "type": "supabase_cleanup_query_error",
+                        "status": resp.status_code,
+                        "response": resp.text
+                    }), file=sys.stderr)
+                    return 0
+                
+                sessions = resp.json()
+                if not sessions:
+                    return 0
+                
+                # Extract session IDs
+                session_ids = [s["session_id"] for s in sessions]
+                
+                # Delete in batches to avoid URL length limits
+                batch_size = 50
+                deleted_count = 0
+                
+                for i in range(0, len(session_ids), batch_size):
+                    batch = session_ids[i:i + batch_size]
+                    delete_url = f"{self._supabase_url}/rest/v1/arena_sessions?session_id=in.({','.join(batch)})"
+                    
+                    delete_resp = await client.delete(delete_url, headers=headers, timeout=self._request_timeout)
+                    
+                    if delete_resp.status_code < 400:
+                        deleted_count += len(batch)
+                        # Clear cache for deleted sessions
+                        for sid in batch:
+                            self._cache_delete(sid)
+                    else:
+                        print(_json_dumps({
+                            "t": _utc_now_iso(),
+                            "type": "supabase_cleanup_delete_error",
+                            "batch": f"{i//batch_size + 1}",
+                            "status": delete_resp.status_code,
+                            "response": delete_resp.text
+                        }), file=sys.stderr)
+                
+                return deleted_count
+        except Exception as exc:
+            print(_json_dumps({
+                "t": _utc_now_iso(),
+                "type": "supabase_cleanup_exception",
+                "error": str(exc)
+            }), file=sys.stderr)
+            return 0
+    
+    async def list_sessions(
+        self,
+        page: int = 1,
+        page_size: int = 50,
+        include_deleted: bool = False
+    ) -> Dict[str, Any]:
+        """List sessions for admin purposes."""
+        if not self._is_supabase_available():
+            return {
+                "success": False,
+                "error": "Supabase not available",
+                "total": 0,
+                "page": page,
+                "page_size": page_size,
+                "sessions": []
+            }
+        
+        # Build query
+        query_params = {
+            "select": "session_id,created_at,updated_at,expires_at,deleted_at,session_data->>turn_count",
+            "order": "created_at.desc"
+        }
+        
+        if not include_deleted:
+            query_params["deleted_at"] = "is.null"
+        
+        # Get total count first
+        count_url = f"{self._supabase_url}/rest/v1/arena_sessions?select=count"
+        if not include_deleted:
+            count_url += "&deleted_at=is.null"
+        
+        # Add pagination
+        offset = (page - 1) * page_size
+        query_params["limit"] = page_size
+        query_params["offset"] = offset
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                headers = self._get_headers()
+                
+                # Get total count
+                count_resp = await client.get(count_url, headers=headers, timeout=self._request_timeout)
+                total_count = 0
+                if count_resp.status_code < 400:
+                    count_data = count_resp.json()
+                    total_count = count_data[0]["count"] if count_data else 0
+                
+                # Get sessions
+                query_str = "&".join([f"{k}={v}" for k, v in query_params.items()])
+                list_url = f"{self._supabase_url}/rest/v1/arena_sessions?{query_str}"
+                
+                list_resp = await client.get(list_url, headers=headers, timeout=self._request_timeout)
+                
+                if list_resp.status_code >= 400:
+                    return {
+                        "success": False,
+                        "error": f"Failed to fetch sessions: {list_resp.text}",
+                        "total": total_count,
+                        "page": page,
+                        "page_size": page_size,
+                        "sessions": []
+                    }
+                
+                sessions = list_resp.json()
+                
+                return {
+                    "success": True,
+                    "total": total_count,
+                    "page": page,
+                    "page_size": page_size,
+                    "sessions": sessions
+                }
+        except Exception as exc:
+            return {
+                "success": False,
+                "error": str(exc),
+                "total": 0,
+                "page": page,
+                "page_size": page_size,
+                "sessions": []
+            }
+
+_SESSION_STORE = SupabaseSessionStore()
 
 
 def _looks_like_unique_violation(resp: httpx.Response) -> bool:
@@ -2074,32 +2821,48 @@ async def _battle_sse(req: Request, prompt: str, session_id: str) -> AsyncIterat
     except Exception:
         pass
 
-    # 5) store session record for vote endpoint
-    await _SESSION_STORE.put(
-        session_id,
-        {
-            "_ts": time.time(),
-            "session_id": session_id,
-            "prompt": prompt,
-            "left": {"arm": left_arm, "model_id": left_model_id, "text": left_text},
-            "right": {"arm": right_arm, "model_id": right_model_id, "text": right_text},
-            "emotion": emo,
-            "intensity": inten,
-            "support_type": stype,
-            "classifier_comment": comment.strip() if isinstance(comment, str) else None,
-            "template_id": template_id,
-            "strategy_name": strategy_name,
-            # Subtask B: keep latest (per-turn) strategy metadata in session
-            "last_template_id": template_id,
-            "last_strategy_name": strategy_name,
-            "ai_scores": None,
-            # Record base model name for downstream analysis
-            "base_model_name": base_model_id,
-            "created_at": _utc_now_iso(),
+    # 5) store session record for vote endpoint with single-side context isolation
+    session_data = {
+        "_ts": time.time(),
+        "session_id": session_id,
+        "prompt": prompt,
+        "left": {
+            "arm": left_arm,
+            "model_id": left_model_id,
+            "text": left_text,
+            "context": [
+                {"role": "system", "content": left_system if left_system else "You are a helpful assistant."}
+            ]
         },
-    )
+        "right": {
+            "arm": right_arm,
+            "model_id": right_model_id,
+            "text": right_text,
+            "context": [
+                {"role": "system", "content": right_system if right_system else "You are a helpful assistant."}
+            ]
+        },
+        "emotion": emo,
+        "intensity": inten,
+        "support_type": stype,
+        "classifier_comment": comment.strip() if isinstance(comment, str) else None,
+        "template_id": template_id,
+        "strategy_name": strategy_name,
+        # Subtask B: keep latest (per-turn) strategy metadata in session
+        "last_template_id": template_id,
+        "last_strategy_name": strategy_name,
+        "ai_scores": None,
+        # Record base model name for downstream analysis
+        "base_model_name": base_model_id,
+        "created_at": _utc_now_iso(),
+        "conversation_history": [],
+        "turn_count": 0,
+        "version": 0
+    }
+    
+    await _SESSION_STORE.put(session_id, session_data)
 
-    # Append first turn to conversation history
+    # Append first turn to conversation history (with context isolation)
     await _SESSION_STORE.append_turn(session_id, prompt, left_text, right_text)
 
     # 6) background evaluation (non-blocking)
@@ -2328,105 +3091,74 @@ async def continue_battle(req: Request, body: Dict[str, Any] = Body(...)) -> Str
             left_model_id = left.get("model_id", REPLY_MODEL_NAME or BASELINE_MODEL_ID)
             right_model_id = right.get("model_id", REPLY_MODEL_NAME or EMPATHY_MODEL_ID)
 
-            # Build messages with conversation history
-            # For baseline (left or right depending on arm)
-            baseline_messages: List[Dict[str, str]] = [{"role": "system", "content": baseline_system}]
-            strategy_messages: List[Dict[str, str]] = [{"role": "system", "content": empathy_system}]
+            # NEW: Use single-side context isolation from session store
+            # Get current session with contexts
+            current_session = await _SESSION_STORE.get(session_id)
+            if not current_session:
+                raise HTTPException(status_code=400, detail="Session not found during context building")
 
-            # H-02 Fix: Token counting and context management
-            history_tokens_baseline = _count_tokens(baseline_system)
-            history_tokens_strategy = _count_tokens(empathy_system)
+            # Get existing contexts for each side
+            left_context = await _SESSION_STORE._build_side_context(current_session, 'left')
+            right_context = await _SESSION_STORE._build_side_context(current_session, 'right')
 
-            # Build temporary history to calculate tokens
-            truncated_history = history.copy()
+            # H-02 Fix: Token counting and context management with new context structure
+            MAX_CONTEXT_TOKENS = 4096  # Adjust based on model
+            RESERVED_TOKENS = 1000  # Reserve for new response
 
-            # Pre-compute per-turn token footprints for baseline/strategy.
-            # IMPORTANT: this must mirror the actual message-building logic below.
-            baseline_turn_tokens_list: List[int] = []
-            strategy_turn_tokens_list: List[int] = []
+            # Count tokens in system prompts
+            history_tokens_left = _count_tokens(baseline_system) if left_arm == "baseline" else _count_tokens(empathy_system)
+            history_tokens_right = _count_tokens(empathy_system) if right_arm == "empathy" else _count_tokens(baseline_system)
 
-            for turn in history:
-                user_msg = str(turn.get("user", "") or "")
-                reply_a = str(turn.get("reply_a", "") or "")
-                reply_b = str(turn.get("reply_b", "") or "")
+            # Count tokens in existing contexts (excluding system messages which are already counted)
+            user_context_tokens_left = sum(_count_tokens(msg["content"]) for msg in left_context[1:])  # Skip system message
+            user_context_tokens_right = sum(_count_tokens(msg["content"]) for msg in right_context[1:])  # Skip system message
 
-                user_tokens = _count_tokens(user_msg)
-
-                # baseline_messages uses the assistant reply from the side where baseline arm sits.
-                baseline_assistant = reply_a if left_arm == "baseline" else reply_b
-                baseline_turn_tokens = user_tokens + _count_tokens(baseline_assistant)
-
-                # strategy_messages uses the assistant reply from the side where empathy arm sits.
-                strategy_assistant = reply_b if right_arm == "empathy" else reply_a
-                strategy_turn_tokens = user_tokens + _count_tokens(strategy_assistant)
-
-                baseline_turn_tokens_list.append(baseline_turn_tokens)
-                strategy_turn_tokens_list.append(strategy_turn_tokens)
-
-                history_tokens_baseline += baseline_turn_tokens
-                history_tokens_strategy += strategy_turn_tokens
+            history_tokens_left += user_context_tokens_left
+            history_tokens_right += user_context_tokens_right
 
             # Add current message tokens
             current_msg_tokens = _count_tokens(user_message)
-            total_tokens_baseline = history_tokens_baseline + current_msg_tokens
-            total_tokens_strategy = history_tokens_strategy + current_msg_tokens
+            total_tokens_left = history_tokens_left + current_msg_tokens
+            total_tokens_right = history_tokens_right + current_msg_tokens
 
-            # Truncate from the beginning if exceeds limit
+            # Truncate context from the beginning if exceeds limit
             history_truncated = False
-            while (total_tokens_baseline > (MAX_CONTEXT_TOKENS - RESERVED_TOKENS) or
-                   total_tokens_strategy > (MAX_CONTEXT_TOKENS - RESERVED_TOKENS)) and len(truncated_history) > 0:
-                removed_turn = truncated_history.pop(0)
+            while (total_tokens_left > (MAX_CONTEXT_TOKENS - RESERVED_TOKENS) or
+                   total_tokens_right > (MAX_CONTEXT_TOKENS - RESERVED_TOKENS)) and len(left_context) > 1:
+                # Remove oldest user-assistant pair from both contexts
+                if len(left_context) >= 3:  # At least system + one user-assistant pair
+                    removed_left_user = left_context.pop(1)  # Remove user message
+                    removed_left_assistant = left_context.pop(1)  # Remove assistant response
+                    removed_left_tokens = _count_tokens(removed_left_user["content"]) + _count_tokens(removed_left_assistant["content"])
+                    history_tokens_left -= removed_left_tokens
+                
+                if len(right_context) >= 3:  # At least system + one user-assistant pair
+                    removed_right_user = right_context.pop(1)  # Remove user message
+                    removed_right_assistant = right_context.pop(1)  # Remove assistant response
+                    removed_right_tokens = _count_tokens(removed_right_user["content"]) + _count_tokens(removed_right_assistant["content"])
+                    history_tokens_right -= removed_right_tokens
 
-                removed_baseline_tokens = baseline_turn_tokens_list.pop(0) if baseline_turn_tokens_list else 0
-                removed_strategy_tokens = strategy_turn_tokens_list.pop(0) if strategy_turn_tokens_list else 0
-
-                history_tokens_baseline -= removed_baseline_tokens
-                history_tokens_strategy -= removed_strategy_tokens
-                total_tokens_baseline = history_tokens_baseline + current_msg_tokens
-                total_tokens_strategy = history_tokens_strategy + current_msg_tokens
+                total_tokens_left = history_tokens_left + current_msg_tokens
+                total_tokens_right = history_tokens_right + current_msg_tokens
                 history_truncated = True
 
                 print(_json_dumps({
                     "t": _utc_now_iso(),
                     "type": "history_truncated",
                     "session": session_id,
-                    "removed_turn": removed_turn.get("turn"),
-                    "remaining_turns": len(truncated_history),
-                    "tokens_baseline": total_tokens_baseline,
-                    "tokens_strategy": total_tokens_strategy
+                    "remaining_left_messages": len(left_context),
+                    "remaining_right_messages": len(right_context),
+                    "tokens_left": total_tokens_left,
+                    "tokens_right": total_tokens_right
                 }))
 
-            # Append historical turns (using truncated history)
-            for turn in truncated_history:
-                user_msg = turn.get("user", "")
-                reply_a = turn.get("reply_a", "")
-                reply_b = turn.get("reply_b", "")
-
-                # Determine which reply corresponds to which arm
-                # reply_a is from left, reply_b is from right
-                baseline_messages.append({"role": "user", "content": user_msg})
-                if left_arm == "baseline":
-                    baseline_messages.append({"role": "assistant", "content": reply_a})
-                else:
-                    baseline_messages.append({"role": "assistant", "content": reply_b})
-
-                strategy_messages.append({"role": "user", "content": user_msg})
-                if right_arm == "empathy":
-                    strategy_messages.append({"role": "assistant", "content": reply_b})
-                else:
-                    strategy_messages.append({"role": "assistant", "content": reply_a})
-
-            # Append current user message
-            baseline_messages.append({"role": "user", "content": user_message})
-            strategy_messages.append({"role": "user", "content": user_message})
-
-            # Prepare left/right messages based on arm assignment
-            if left_arm == "baseline":
-                left_messages = baseline_messages
-                right_messages = strategy_messages
-            else:
-                left_messages = strategy_messages
-                right_messages = baseline_messages
+            # Build messages from contexts
+            left_messages = left_context.copy()
+            right_messages = right_context.copy()
+            
+            # Add current user message to both sides
+            left_messages.append({"role": "user", "content": user_message})
+            right_messages.append({"role": "user", "content": user_message})
 
             # Phase 8.2: Unified SSE frame schema - meta frame
             meta: Dict[str, Any] = {
@@ -2882,6 +3614,184 @@ async def vote(background_tasks: BackgroundTasks, body: Dict[str, Any] = Body(..
         }
     )
 
+# ============================================================================
+# Session Management API Endpoints (Admin)
+# ============================================================================
+
+@app.post(f"{API_PREFIX}/sessions/list")
+async def list_sessions(
+    page: int = 1,
+    page_size: int = 50,
+    include_deleted: bool = False,
+    admin_key: str = Header(None)
+) -> JSONResponse:
+    """
+    管理员接口：列表会话与统计
+    
+    请求参数：
+    - page: 页码（默认 1）
+    - page_size: 每页数量（默认 50）
+    - include_deleted: 是否包含已删除会话（默认 False）
+    - admin_key: 管理员 API 密钥（必需）
+    
+    返回：
+    {
+        "success": bool,
+        "total": int,
+        "page": int,
+        "page_size": int,
+        "sessions": [
+            {
+                "session_id": str,
+                "created_at": str,
+                "updated_at": str,
+                "expires_at": str,
+                "deleted_at": str|null,
+                "turn_count": int
+            }
+        ]
+    }
+    """
+    # Check admin key
+    ADMIN_API_KEY = os.environ.get("ARENA_ADMIN_API_KEY", "")
+    if admin_key != ADMIN_API_KEY:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    # Use the SessionStore's list_sessions method
+    result = await _SESSION_STORE.list_sessions(
+        page=page,
+        page_size=page_size,
+        include_deleted=include_deleted
+    )
+    
+    return JSONResponse(result)
+
+
+@app.post(f"{API_PREFIX}/session/delete")
+async def soft_delete_session(
+    session_id: str = Body(..., embed=True),
+    admin_key: str = Header(None)
+) -> JSONResponse:
+    """
+    管理员接口：软删除会话
+    
+    请求体：
+    {
+        "session_id": "会话ID"
+    }
+    
+    请求头：
+    - admin_key: 管理员 API 密钥（必需）
+    
+    返回：
+    {
+        "success": bool,
+        "session_id": str
+    }
+    """
+    # Check admin key
+    ADMIN_API_KEY = os.environ.get("ARENA_ADMIN_API_KEY", "")
+    if admin_key != ADMIN_API_KEY:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+    
+    # Perform soft delete
+    success = await _SESSION_STORE.soft_delete(session_id)
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to soft delete session")
+    
+    return JSONResponse({
+        "success": True,
+        "session_id": session_id
+    })
+
+
+@app.post(f"{API_PREFIX}/session/restore")
+async def restore_session_endpoint(
+    session_id: str = Body(..., embed=True),
+    admin_key: str = Header(None)
+) -> JSONResponse:
+    """
+    管理员接口：恢复被软删除的会话
+    
+    请求体：
+    {
+        "session_id": "会话ID"
+    }
+    
+    请求头：
+    - admin_key: 管理员 API 密钥（必需）
+    
+    返回：
+    {
+        "success": bool,
+        "session_id": str
+    }
+    """
+    # Check admin key
+    ADMIN_API_KEY = os.environ.get("ARENA_ADMIN_API_KEY", "")
+    if admin_key != ADMIN_API_KEY:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+    
+    # Perform restore
+    success = await _SESSION_STORE.restore_session(session_id)
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to restore session")
+    
+    return JSONResponse({
+        "success": True,
+        "session_id": session_id
+    })
+
+
+@app.post(f"{API_PREFIX}/sessions/cleanup")
+async def cleanup_deleted_sessions_endpoint(
+    max_age_days: int = Body(30, embed=True),
+    admin_key: str = Header(None)
+) -> JSONResponse:
+    """
+    管理员接口：清理超过指定天数的软删除会话
+    
+    请求体：
+    {
+        "max_age_days": 30  # 默认 30 天
+    }
+    
+    请求头：
+    - admin_key: 管理员 API 密钥（必需）
+    
+    返回：
+    {
+        "success": bool,
+        "deleted_count": int,
+        "max_age_days": int
+    }
+    """
+    # Check admin key
+    ADMIN_API_KEY = os.environ.get("ARENA_ADMIN_API_KEY", "")
+    if admin_key != ADMIN_API_KEY:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    # Perform cleanup
+    deleted_count = await _SESSION_STORE.cleanup_deleted_sessions(max_age_days)
+    
+    return JSONResponse({
+        "success": True,
+        "deleted_count": deleted_count,
+        "max_age_days": max_age_days
+    })
+
+
+# ============================================================================
+# Post-Vote Chat Endpoints
+# ============================================================================
 
 @app.post(f"{API_PREFIX}/chat")
 async def post_vote_chat(req: Request, body: Dict[str, Any] = Body(...)) -> StreamingResponse:

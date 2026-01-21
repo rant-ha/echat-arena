@@ -7,11 +7,20 @@
         "@modelcontextprotocol/server-memory"
       ]
     },
+    
     "google-ai-search": {
       "command": "npx",
       "args": [
         "google-ai-mode-mcp@latest"
       ]
+    },
+    "augment-context-engine": {
+      "command": "auggie",
+      "args": ["--mcp"],
+      "env": {
+        "AUGMENT_API_TOKEN": "ace_872f70fecaf5249ac92ce42ebb5526b54460c054",
+        "AUGMENT_API_URL": "https://acemcp.heroman.wtf/relay/"
+      }
     }
   }
 }
