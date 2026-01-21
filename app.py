@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 import httpx
-from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -2150,7 +2150,17 @@ class SupabaseSessionStore(SessionStore):
                 "sessions": []
             }
 
-_SESSION_STORE = SupabaseSessionStore()
+try:
+    _SESSION_STORE = SupabaseSessionStore()
+except Exception as exc:  # pragma: no cover - defensive fallback
+    print(_json_dumps({
+        "t": _utc_now_iso(),
+        "type": "session_store_init_failed",
+        "error": str(exc)
+    }), file=sys.stderr)
+    # Fallback to in-memory store to keep the API alive even if Supabase
+    # initialization fails due to misconfigured env vars or transient errors.
+    _SESSION_STORE = SessionStore()
 
 
 def _looks_like_unique_violation(resp: httpx.Response) -> bool:
