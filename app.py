@@ -1540,6 +1540,9 @@ class SupabaseSessionStore(SessionStore):
             "expires_at": (datetime.now() + timedelta(seconds=_SESSION_TTL_SEC)).isoformat(),
             "updated_at": _utc_now_iso()
         }
+        # Ensure session_id is present on creation to satisfy NOT NULL PK constraint
+        if create_if_not_exists:
+            update_data["session_id"] = session_id
         
         # Build query conditions
         conditions = [f"session_id=eq.{session_id}"]
@@ -2150,17 +2153,10 @@ class SupabaseSessionStore(SessionStore):
                 "sessions": []
             }
 
-try:
-    _SESSION_STORE = SupabaseSessionStore()
-except Exception as exc:  # pragma: no cover - defensive fallback
-    print(_json_dumps({
-        "t": _utc_now_iso(),
-        "type": "session_store_init_failed",
-        "error": str(exc)
-    }), file=sys.stderr)
-    # Fallback to in-memory store to keep the API alive even if Supabase
-    # initialization fails due to misconfigured env vars or transient errors.
-    _SESSION_STORE = SessionStore()
+# Defer Supabase-backed session store initialization to application startup
+# to avoid import-time side effects and allow clearer env validation/logging.
+# Start with an in-memory SessionStore as a safe default.
+_SESSION_STORE: SessionStore = SessionStore()
 
 
 def _looks_like_unique_violation(resp: httpx.Response) -> bool:
@@ -2908,6 +2904,34 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def _startup() -> None:
+    # Initialize SessionStore with strict env validation to avoid import-time failures.
+    global _SESSION_STORE
+    store_mode = os.environ.get("ARENA_SESSION_STORE", "memory").lower()
+    if store_mode == "supabase":
+        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+            print(_json_dumps({
+                "t": _utc_now_iso(),
+                "type": "session_store_config_invalid",
+                "reason": "missing_supabase_env",
+                "SUPABASE_URL": bool(SUPABASE_URL),
+                "SUPABASE_SERVICE_KEY": bool(SUPABASE_SERVICE_KEY),
+            }), file=sys.stderr)
+            # keep in-memory store as fallback
+        else:
+            try:
+                ss = SupabaseSessionStore()
+                _SESSION_STORE = ss
+                print(_json_dumps({"t": _utc_now_iso(), "type": "session_store_initialized", "mode": "supabase"}))
+            except Exception as exc:  # pragma: no cover - defensive
+                print(_json_dumps({
+                    "t": _utc_now_iso(),
+                    "type": "session_store_init_failed",
+                    "error": str(exc)
+                }), file=sys.stderr)
+                _SESSION_STORE = SessionStore()
+    else:
+        print(_json_dumps({"t": _utc_now_iso(), "type": "session_store_initialized", "mode": "memory"}))
+
     # Optional: schedule archive job (Supabase -> CSV -> Drive)
     if not ARCHIVE_ENABLED:
         return
