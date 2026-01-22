@@ -6,10 +6,13 @@ import { useEffect, useRef, useCallback, useMemo } from "react";
 import { cn } from "./ui";
 import { VariableSizeList as List } from "react-window";
 import AutoSizer from "react-virtualized-auto-sizer";
+import { Copy, Maximize2, Check } from "lucide-react";
+import { useState } from "react";
 
 export type ResponseCardReveal = {
   label?: string;
   subtitle?: string;
+  modelId?: string; // Optional: for logos if we had them
 };
 
 export type AiJudgeScores = {
@@ -18,16 +21,6 @@ export type AiJudgeScores = {
   helpfulness_score?: number;
   comment?: string;
 };
-
-function totalAiScore(s: AiJudgeScores | null | undefined): number | null {
-  if (!s) return null;
-  const a = typeof s.empathy_score === "number" ? s.empathy_score : null;
-  const b =
-    typeof s.emotional_safety_score === "number" ? s.emotional_safety_score : null;
-  const c = typeof s.helpfulness_score === "number" ? s.helpfulness_score : null;
-  if (a === null || b === null || c === null) return null;
-  return a + b + c;
-}
 
 export interface ConversationTurn {
   turn: number;
@@ -76,11 +69,12 @@ interface ConversationTurnRowProps {
     isStreaming: boolean;
     cacheKey: string;
     onHeightChange: (index: number, height: number) => void;
+    side: "left" | "right";
   };
 }
 
 const ConversationTurnRow = ({ index, style, data }: ConversationTurnRowProps) => {
-  const { turns, currentReply, isStreaming, cacheKey, onHeightChange } = data;
+  const { turns, currentReply, isStreaming, cacheKey, onHeightChange, side } = data;
   const rowRef = useRef<HTMLDivElement>(null);
   const turn = turns[index];
   const isLastTurn = index === turns.length - 1;
@@ -96,30 +90,28 @@ const ConversationTurnRow = ({ index, style, data }: ConversationTurnRowProps) =
 
   return (
     <div style={style}>
-      <div ref={rowRef} className="px-2 pb-4">
-        <div className="space-y-3">
-          {/* 轮次分隔线 */}
+      <div ref={rowRef} className="px-3 pb-6">
+        <div className="space-y-4">
+          {/* 轮次分隔线 - Optional, keeping minimal */}
           {index > 0 && (
-            <div className="flex items-center gap-2 py-1">
-              <div className="h-px flex-1 bg-[var(--border-color)]" />
-              <span className="text-xs text-[var(--text-muted)]">第 {turn.turn} 轮</span>
-              <div className="h-px flex-1 bg-[var(--border-color)]" />
+            <div className="flex items-center gap-2 py-2 opacity-50">
+              <div className="h-px flex-1 bg-border-faint" />
             </div>
           )}
 
           {/* 用户输入气泡 */}
           <div className="flex justify-end">
-            <div className="max-w-[85%] md:max-w-[80%] rounded-2xl bg-blue-600 px-4 py-2 text-white">
-              <div className="prose prose-sm prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5">
+            <div className="max-w-[90%] rounded-2xl bg-surface-elevated px-4 py-2.5 text-text-primary">
+              <div className="prose prose-sm prose-invert max-w-none break-words">
                 <ReactMarkdown>{turn.user}</ReactMarkdown>
               </div>
             </div>
           </div>
 
           {/* AI 回复气泡 */}
-          <div className="flex justify-start">
-            <div className="max-w-[85%] md:max-w-[80%] rounded-2xl bg-zinc-800 px-4 py-3 text-zinc-100">
-              <div className="prose prose-sm prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5">
+          <div className="flex justify-start w-full">
+            <div className="w-full rounded-xl bg-transparent text-text-secondary">
+              <div className="prose prose-sm prose-invert max-w-none break-words prose-pre:bg-surface-primary prose-pre:border prose-pre:border-border-faint prose-code:bg-surface-elevated prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
                 <ReactMarkdown>{turn.reply}</ReactMarkdown>
               </div>
             </div>
@@ -127,22 +119,14 @@ const ConversationTurnRow = ({ index, style, data }: ConversationTurnRowProps) =
 
           {/* 当前正在生成的回复 */}
           {showCurrentReply && (
-            <div className="space-y-3 mt-3">
-              <div className="flex items-center gap-2 py-1">
-                <div className="h-px flex-1 bg-[var(--border-color)]" />
-                <span className="text-xs text-[var(--text-muted)]">
-                  第 {turns.length + 1} 轮
-                </span>
-                <div className="h-px flex-1 bg-[var(--border-color)]" />
-              </div>
-
+            <div className="space-y-4 mt-4 pt-4 border-t border-border-faint/50">
               {/* AI 回复气泡（流式生成中） */}
-              <div className="flex justify-start">
-                <div className="max-w-[85%] md:max-w-[80%] rounded-2xl bg-zinc-800 px-4 py-3 text-zinc-100">
-                  <div className="prose prose-sm prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5">
+              <div className="flex justify-start w-full">
+                <div className="w-full rounded-xl bg-transparent text-text-primary">
+                  <div className="prose prose-sm prose-invert max-w-none break-words">
                     <ReactMarkdown>{currentReply}</ReactMarkdown>
                     {isStreaming && (
-                      <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-zinc-100" />
+                      <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-interactive-accent align-middle" />
                     )}
                   </div>
                 </div>
@@ -171,9 +155,9 @@ export function ResponseCard({
   postVoteCurrentReply = "",
   isPostVoteChatting = false,
 }: ResponseCardProps) {
-  const total = totalAiScore(judgeScores);
   const listRef = useRef<List>(null);
   const cacheKey = `${side}-${anonymousLabel}`;
+  const [copied, setCopied] = useState(false);
 
   // 初始化缓存
   if (!itemHeightCache.has(cacheKey)) {
@@ -181,40 +165,30 @@ export function ResponseCard({
   }
   const cache = itemHeightCache.get(cacheKey)!;
 
-  // 判断是否有内容显示
   const hasHistory = conversationHistory.length > 0;
   const hasCurrentReply = content.trim().length > 0;
   const hasAnyContent = hasHistory || hasCurrentReply;
 
+  // Copy functionality
+  const handleCopy = () => {
+    const lastReply = hasCurrentReply 
+      ? content 
+      : conversationHistory[conversationHistory.length - 1]?.reply;
+      
+    if (lastReply) {
+      navigator.clipboard.writeText(lastReply);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   // 估算项目高度
   const estimateItemSize = useCallback(
     (index: number) => {
-      // 从缓存读取
-      if (cache.has(index)) {
-        return cache.get(index)!;
-      }
-
-      // 估算高度
-      const turn = conversationHistory[index];
-      if (!turn) return 200;
-
-      const isLastTurn = index === conversationHistory.length - 1;
-      const showCurrentReply = isLastTurn && hasCurrentReply;
-
-      // 基础高度计算
-      const userMsgHeight = Math.max(60, Math.ceil(turn.user.length / 50) * 30);
-      const replyHeight = Math.max(80, Math.ceil(turn.reply.length / 50) * 30);
-      let totalHeight = userMsgHeight + replyHeight + 80; // 80 为间距和分隔线
-
-      // 如果是最后一轮且有当前回复，增加额外高度
-      if (showCurrentReply) {
-        const currentReplyHeight = Math.max(80, Math.ceil(content.length / 50) * 30);
-        totalHeight += currentReplyHeight + 60; // 额外的分隔线和间距
-      }
-
-      return totalHeight;
+      if (cache.has(index)) return cache.get(index)!;
+      return 200; // Default estimate
     },
-    [conversationHistory, hasCurrentReply, content, cache]
+    [cache]
   );
 
   // 高度变化回调
@@ -223,7 +197,6 @@ export function ResponseCard({
       const currentHeight = cache.get(index);
       if (currentHeight !== height) {
         cache.set(index, height);
-        // 重置该索引之后的所有项
         listRef.current?.resetAfterIndex(index, false);
       }
     },
@@ -233,7 +206,6 @@ export function ResponseCard({
   // 自动滚动到最新消息
   useEffect(() => {
     if (listRef.current && conversationHistory.length > 0) {
-      // 延迟滚动以确保内容已渲染
       const timer = setTimeout(() => {
         listRef.current?.scrollToItem(conversationHistory.length - 1, "end");
       }, 100);
@@ -241,24 +213,6 @@ export function ResponseCard({
     }
   }, [conversationHistory.length, content]);
 
-  // 性能监控（开发模式）
-  useEffect(() => {
-    if (process.env.NODE_ENV === "development" && conversationHistory.length > 0) {
-      const avgItemHeight = 200; // 平均项高度估算
-      const viewportHeight = 600; // 假设可见区域高度
-      const visibleItems = Math.ceil(viewportHeight / avgItemHeight);
-      const renderRatio = (visibleItems / conversationHistory.length) * 100;
-
-      console.log(`[Virtual Scroll Performance - ${side}]`, {
-        totalTurns: conversationHistory.length,
-        estimatedVisibleTurns: visibleItems,
-        renderRatio: `${renderRatio.toFixed(2)}%`,
-        cacheSize: cache.size,
-      });
-    }
-  }, [conversationHistory.length, side, cache.size]);
-
-  // 准备列表数据
   const listData = useMemo(
     () => ({
       turns: conversationHistory,
@@ -266,8 +220,9 @@ export function ResponseCard({
       isStreaming,
       cacheKey,
       onHeightChange: handleHeightChange,
+      side,
     }),
-    [conversationHistory, content, isStreaming, cacheKey, handleHeightChange]
+    [conversationHistory, content, isStreaming, cacheKey, handleHeightChange, side]
   );
 
   // 渲染投票后对话
@@ -275,30 +230,24 @@ export function ResponseCard({
     if (postVoteTurns.length === 0 && !postVoteCurrentReply) return null;
 
     return (
-      <div className="space-y-3 mt-4">
-        {/* 分隔线 */}
-        <div className="flex items-center gap-2 py-2">
-          <div className="h-px flex-1 bg-blue-500/50" />
-          <span className="text-xs text-blue-400 font-medium">投票后继续对话</span>
-          <div className="h-px flex-1 bg-blue-500/50" />
+      <div className="space-y-4 mt-6 pt-6 border-t border-border-faint">
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-xs font-medium text-interactive-accent uppercase tracking-wider">Continued Chat</span>
         </div>
 
-        {/* 渲染投票后的轮次 */}
         {postVoteTurns.map((turn) => (
-          <div key={turn.turn_index} className="space-y-3">
-            {/* 用户消息 */}
+          <div key={turn.turn_index} className="space-y-4">
             <div className="flex justify-end">
-              <div className="max-w-[85%] md:max-w-[80%] rounded-2xl bg-blue-600 px-4 py-2 text-white">
-                <div className="prose prose-sm prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5">
+              <div className="max-w-[90%] rounded-2xl bg-surface-elevated px-4 py-2.5 text-text-primary">
+                <div className="prose prose-sm prose-invert max-w-none break-words">
                   <ReactMarkdown>{turn.user_message}</ReactMarkdown>
                 </div>
               </div>
             </div>
 
-            {/* AI 回复 */}
-            <div className="flex justify-start">
-              <div className="max-w-[85%] md:max-w-[80%] rounded-2xl bg-zinc-800 px-4 py-3 text-zinc-100">
-                <div className="prose prose-sm prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5">
+            <div className="flex justify-start w-full">
+              <div className="w-full rounded-xl bg-transparent text-text-secondary">
+                <div className="prose prose-sm prose-invert max-w-none break-words">
                   <ReactMarkdown>{turn.assistant_message}</ReactMarkdown>
                 </div>
               </div>
@@ -306,14 +255,13 @@ export function ResponseCard({
           </div>
         ))}
 
-        {/* 当前正在生成的回复 */}
         {postVoteCurrentReply && (
-          <div className="flex justify-start">
-            <div className="max-w-[85%] md:max-w-[80%] rounded-2xl bg-zinc-800 px-4 py-3 text-zinc-100">
-              <div className="prose prose-sm prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5">
+          <div className="flex justify-start w-full">
+            <div className="w-full rounded-xl bg-transparent text-text-primary">
+              <div className="prose prose-sm prose-invert max-w-none break-words">
                 <ReactMarkdown>{postVoteCurrentReply}</ReactMarkdown>
                 {isPostVoteChatting && (
-                  <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-zinc-100" />
+                  <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-interactive-accent align-middle" />
                 )}
               </div>
             </div>
@@ -328,42 +276,35 @@ export function ResponseCard({
     if (!hasAnyContent && postVoteTurns.length === 0) {
       return (
         <div className="flex h-full items-center justify-center">
-          <p className="text-sm text-[var(--text-muted)]">等待回复...</p>
+          <p className="text-sm text-text-muted">Waiting for response...</p>
         </div>
       );
     }
 
-    // 对于短对话（少于 5 轮），使用传统渲染以保持最佳体验
     if (conversationHistory.length < 5) {
       return (
-        <div
-          className="flex flex-col gap-4 overflow-y-auto pr-2 scrollbar-thin"
-          style={{ maxHeight: "100%" }}
-        >
+        <div className="flex flex-col gap-0 overflow-y-auto px-1 scrollbar-thin h-full">
           {conversationHistory.map((turn, idx) => (
-            <div key={`turn-${turn.turn}`} className="space-y-3">
-              {/* 轮次分隔 */}
+            <div key={`turn-${turn.turn}`} className="space-y-4 mb-6">
               {idx > 0 && (
-                <div className="flex items-center gap-2 py-1">
-                  <div className="h-px flex-1 bg-[var(--border-color)]" />
-                  <span className="text-xs text-[var(--text-muted)]">第 {turn.turn} 轮</span>
-                  <div className="h-px flex-1 bg-[var(--border-color)]" />
+                <div className="flex items-center justify-center py-2 opacity-30">
+                  <div className="h-px w-8 bg-border-strong" />
                 </div>
               )}
 
-              {/* 用户输入气泡 */}
+              {/* User Bubble */}
               <div className="flex justify-end">
-                <div className="max-w-[85%] md:max-w-[80%] rounded-2xl bg-blue-600 px-4 py-2 text-white">
-                  <div className="prose prose-sm prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5">
+                <div className="max-w-[90%] rounded-2xl bg-surface-elevated px-4 py-2.5 text-text-primary shadow-sm">
+                  <div className="prose prose-sm prose-invert max-w-none break-words leading-relaxed">
                     <ReactMarkdown>{turn.user}</ReactMarkdown>
                   </div>
                 </div>
               </div>
 
-              {/* AI 回复气泡 */}
-              <div className="flex justify-start">
-                <div className="max-w-[85%] md:max-w-[80%] rounded-2xl bg-zinc-800 px-4 py-3 text-zinc-100">
-                  <div className="prose prose-sm prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5">
+              {/* AI Bubble */}
+              <div className="flex justify-start w-full group/msg">
+                <div className="w-full pl-1 pr-2">
+                  <div className="prose prose-sm prose-invert max-w-none break-words leading-relaxed text-text-secondary prose-pre:bg-surface-primary prose-pre:border prose-pre:border-border-faint prose-code:bg-surface-elevated prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
                     <ReactMarkdown>{turn.reply}</ReactMarkdown>
                   </div>
                 </div>
@@ -371,26 +312,19 @@ export function ResponseCard({
             </div>
           ))}
 
-          {/* 当前正在生成的回复 */}
           {hasCurrentReply && (
-            <div className="space-y-3">
+            <div className="space-y-4 mb-4">
               {conversationHistory.length > 0 && (
-                <div className="flex items-center gap-2 py-1">
-                  <div className="h-px flex-1 bg-[var(--border-color)]" />
-                  <span className="text-xs text-[var(--text-muted)]">
-                    第 {conversationHistory.length + 1} 轮
-                  </span>
-                  <div className="h-px flex-1 bg-[var(--border-color)]" />
+                <div className="flex items-center justify-center py-2 opacity-30">
+                  <div className="h-px w-8 bg-border-strong" />
                 </div>
               )}
-
-              {/* AI 回复气泡（流式生成中） */}
-              <div className="flex justify-start">
-                <div className="max-w-[85%] md:max-w-[80%] rounded-2xl bg-zinc-800 px-4 py-3 text-zinc-100">
-                  <div className="prose prose-sm prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5">
+              <div className="flex justify-start w-full">
+                <div className="w-full pl-1 pr-2">
+                  <div className="prose prose-sm prose-invert max-w-none break-words leading-relaxed text-text-primary">
                     <ReactMarkdown>{content}</ReactMarkdown>
                     {isStreaming && (
-                      <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-zinc-100" />
+                      <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-interactive-accent align-middle" />
                     )}
                   </div>
                 </div>
@@ -398,13 +332,11 @@ export function ResponseCard({
             </div>
           )}
 
-          {/* 投票后对话 */}
           {!isLoser && renderPostVoteChat()}
         </div>
       );
     }
 
-    // 对于长对话（5 轮及以上），使用虚拟滚动
     return (
       <AutoSizer>
         {({ height, width }) => (
@@ -427,88 +359,108 @@ export function ResponseCard({
 
   return (
     <div
-      className="perspective-1000 h-full w-full transition-all duration-300"
-      style={isLoser ? {
-        filter: 'grayscale(100%) opacity(0.5)',
-        pointerEvents: 'none'
-      } : undefined}
+      className={cn(
+        "perspective-1000 h-full w-full transition-all duration-300",
+        isLoser ? "grayscale opacity-60 pointer-events-none" : ""
+      )}
     >
       <motion.div
         className="relative h-full w-full"
         initial={false}
         animate={{ rotateY: isRevealed ? 180 : 0 }}
-        transition={{ duration: 0.6, ease: "easeInOut" }}
+        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }} // smooth cubic bezier
         style={{ transformStyle: "preserve-3d" }}
       >
-        {/* Front face (anonymous) */}
+        {/* Front Face */}
         <div
           className={cn(
-            "absolute inset-0 rounded-2xl border p-5",
-            "bg-[var(--main-bg)] backdrop-blur-md shadow-md",
-            "flex flex-col",
-            isWinner === true && "border-green-400/50 ring-2 ring-green-400/30",
-            isWinner === false && "border-[var(--border-color)]",
-            isWinner === undefined && "border-[var(--border-color)]"
+            "absolute inset-0 flex flex-col overflow-hidden",
+            "rounded-xl border border-border-faint bg-surface-tertiary",
+            "shadow-card transition-colors duration-300",
+            isWinner === true && "border-interactive-accent ring-1 ring-interactive-accent/50"
           )}
           style={{ backfaceVisibility: "hidden" }}
         >
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-[var(--text-primary)]">
-              {anonymousLabel}
-            </h3>
-            {isStreaming && (
-              <span className="flex items-center gap-1.5 text-xs text-[var(--text-primary)]">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--text-primary)]" />
-                Streaming…
+          {/* Header */}
+          <div className="flex h-10 shrink-0 items-center justify-between border-b border-border-faint bg-surface-tertiary px-3 py-2">
+            <div className="flex items-center gap-2">
+              <span className="flex items-center gap-2 text-xs font-medium text-text-secondary uppercase tracking-wide">
+                {/* Placeholder Logo */}
+                <div className="h-4 w-4 rounded-sm bg-surface-elevated" />
+                {anonymousLabel}
               </span>
-            )}
+            </div>
+            
+            <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 duration-200">
+              <button
+                onClick={handleCopy}
+                className="rounded p-1.5 text-text-muted hover:bg-surface-elevated hover:text-text-primary transition-colors"
+                title="Copy response"
+              >
+                {copied ? <Check className="h-3.5 w-3.5 text-positive" /> : <Copy className="h-3.5 w-3.5" />}
+              </button>
+              <button
+                className="rounded p-1.5 text-text-muted hover:bg-surface-elevated hover:text-text-primary transition-colors"
+                title="Maximize"
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
-          <div className="flex-1 overflow-hidden">
-            {renderConversationContent()}
+
+          {/* Content Area */}
+          <div className="flex-1 overflow-hidden p-3 relative bg-surface-tertiary">
+             {renderConversationContent()}
           </div>
         </div>
 
-        {/* Back face (revealed) */}
+        {/* Back Face (Revealed) */}
         <div
           className={cn(
-            "absolute inset-0 rounded-2xl border p-5",
-            "bg-[var(--main-bg)] backdrop-blur-md shadow-md",
-            "flex flex-col",
-            isWinner === true && "border-green-400/50 ring-2 ring-green-400/30",
-            isWinner === false && "border-[var(--border-color)]",
-            isWinner === undefined && "border-[var(--border-color)]"
+            "absolute inset-0 flex flex-col overflow-hidden",
+            "rounded-xl border border-border-faint bg-surface-tertiary",
+            "shadow-card",
+            isWinner === true && "border-interactive-accent ring-1 ring-interactive-accent/50"
           )}
           style={{
             backfaceVisibility: "hidden",
             transform: "rotateY(180deg)",
           }}
         >
-          <div className="mb-3 flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h3 className="truncate text-lg font-semibold text-[var(--text-primary)]">
-                {side === "left" ? "Reply A" : "Reply B"}
-              </h3>
-              {revealed?.label && (
-                <p className="text-sm text-[var(--text-muted)]">{revealed.label}</p>
-              )}
+          {/* Revealed Header */}
+          <div className="flex h-12 shrink-0 items-center justify-between border-b border-border-faint bg-surface-tertiary px-4">
+            <div className="min-w-0 flex flex-col justify-center">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-sm font-semibold text-text-primary">
+                  {revealed?.label || (side === "left" ? "Model A" : "Model B")}
+                </span>
+                {isWinner === true && (
+                  <span className="flex items-center gap-1 rounded-full bg-green-500/10 px-1.5 py-0.5 text-[10px] font-bold text-green-400 uppercase tracking-wider">
+                    Winner
+                  </span>
+                )}
+              </div>
               {revealed?.subtitle && (
-                <p className="text-xs text-[var(--text-muted)] opacity-75">
+                <span className="truncate text-[10px] text-text-muted">
                   {revealed.subtitle}
-                </p>
+                </span>
               )}
             </div>
-            {isWinner === true && (
-              <span className="shrink-0 rounded-full bg-green-500/20 px-2 py-0.5 text-xs font-medium text-green-400">
-                Winner
-              </span>
-            )}
+            
+            <div className="flex items-center gap-1">
+               <button
+                onClick={handleCopy}
+                className="rounded p-1.5 text-text-muted hover:bg-surface-elevated hover:text-text-primary transition-colors"
+              >
+                {copied ? <Check className="h-3.5 w-3.5 text-positive" /> : <Copy className="h-3.5 w-3.5" />}
+              </button>
+            </div>
           </div>
 
-          <div className="flex-1 overflow-hidden">
+          {/* Content Area */}
+          <div className="flex-1 overflow-hidden p-3 bg-surface-tertiary">
             {renderConversationContent()}
           </div>
-
-          {/* AI Judge scores hidden per user request - data still collected in backend */}
         </div>
       </motion.div>
     </div>

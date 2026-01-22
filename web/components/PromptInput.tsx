@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useState, KeyboardEvent, useMemo } from "react";
-import { Send, Plus } from "lucide-react";
+import { useCallback, useState, KeyboardEvent, useMemo, useRef, useEffect } from "react";
+import { Send, Plus, Search, Image, FileCode, Film, Globe } from "lucide-react";
 import { cn } from "./ui";
 
 interface PromptInputProps {
@@ -17,11 +17,12 @@ interface PromptInputProps {
 export function PromptInput({
   onSubmit,
   disabled,
-  placeholder = "输入你的 Prompt，比较两路回答…",
+  placeholder = "Message Model Arena...",
   containerClassName,
   variant = "default",
 }: PromptInputProps) {
   const [value, setValue] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const canSend = useMemo(() => {
     return !disabled && value.trim().length > 0;
@@ -32,6 +33,10 @@ export function PromptInput({
     if (!trimmed || disabled) return;
     onSubmit(trimmed);
     setValue("");
+    // Reset height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
   }, [value, disabled, onSubmit]);
 
   const handleKeyDown = useCallback(
@@ -44,39 +49,37 @@ export function PromptInput({
     [handleSubmit]
   );
 
-  // Home variant - ChatGPT style centered input
-  if (variant === "home") {
-    return (
-      <div
-        className={cn(
-          "relative w-full",
-          containerClassName
-        )}
-      >
-        <div
-          className={cn(
-            "flex items-center gap-2",
-            "rounded-3xl",
-            "bg-[var(--input-bg)]",
-            "px-4 py-3",
-            "border border-transparent",
-            "focus-within:border-[var(--border-color)]"
-          )}
-        >
-          {/* Plus icon on the left */}
+  // Auto-resize textarea
+  useEffect(() => {
+    const target = textareaRef.current;
+    if (target) {
+      target.style.height = "auto";
+      target.style.height = Math.min(target.scrollHeight, 200) + "px";
+    }
+  }, [value]);
+
+  return (
+    <div
+      className={cn(
+        "relative w-full max-w-4xl mx-auto",
+        containerClassName
+      )}
+    >
+      <div className="relative flex flex-col w-full bg-surface-tertiary rounded-[26px] border border-border-faint shadow-lg focus-within:ring-1 focus-within:ring-border-strong focus-within:border-border-strong transition-all duration-200">
+        
+        {/* Input Area */}
+        <div className="flex w-full items-end gap-2 p-3 pl-4">
+          {/* Visual-only Attachment Button */}
           <button
             type="button"
-            className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-full",
-              "text-[var(--text-muted)]",
-              "hover:bg-white/10 transition-colors"
-            )}
+            className="mb-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-text-muted hover:bg-surface-elevated hover:text-text-primary transition-colors"
+            title="Attachments (Visual Only)"
           >
             <Plus className="h-5 w-5" />
           </button>
 
-          {/* Input field */}
           <textarea
+            ref={textareaRef}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -84,105 +87,55 @@ export function PromptInput({
             disabled={disabled}
             rows={1}
             className={cn(
-              "flex-1 resize-none bg-transparent",
-              "text-base text-[var(--text-primary)]",
-              "placeholder:text-[var(--text-muted)]",
+              "flex-1 resize-none bg-transparent py-3",
+              "text-base text-text-primary placeholder:text-text-muted/70",
               "focus:outline-none",
               "disabled:cursor-not-allowed disabled:opacity-60",
-              "min-h-[28px] max-h-[200px]"
+              "min-h-[44px] max-h-[200px]"
             )}
             style={{
-              height: "auto",
-              minHeight: "28px",
-            }}
-            onInput={(e) => {
-              const target = e.target as HTMLTextAreaElement;
-              target.style.height = "auto";
-              target.style.height = Math.min(target.scrollHeight, 200) + "px";
+              height: "44px", // Initial height matches min-height
             }}
           />
 
-          {/* Send button on the right */}
+          {/* Send Button */}
           <button
             type="button"
             onClick={handleSubmit}
             disabled={!canSend}
             className={cn(
-              "flex h-8 w-8 items-center justify-center rounded-full",
-              "transition-all duration-200",
+              "mb-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-200",
               canSend
-                ? "bg-white text-black hover:bg-gray-200"
-                : "bg-[var(--text-muted)]/30 text-[var(--text-muted)] cursor-not-allowed"
+                ? "bg-interactive-accent text-white hover:bg-interactive-hover"
+                : "bg-surface-elevated text-text-muted cursor-not-allowed opacity-50"
             )}
             aria-label="Send prompt"
           >
             <Send className="h-4 w-4" />
           </button>
         </div>
-      </div>
-    );
-  }
 
-  // Default variant - original battle page style
-  return (
-    <div
-      className={cn(
-        "fixed bottom-0 left-0 right-0 z-50",
-        "border-t border-[var(--border-color)] bg-[var(--main-bg)]/90 backdrop-blur-xl",
-        "px-4 py-4 sm:px-6",
-        containerClassName
-      )}
-    >
-      <div className="mx-auto max-w-4xl">
-        <div className="flex items-end gap-3">
-          <div className="flex-1">
-            <textarea
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={placeholder}
-              disabled={disabled}
-              rows={1}
-              className={cn(
-                "w-full resize-none rounded-xl border border-[var(--border-color)]",
-                "bg-[var(--input-bg)] px-4 py-3 text-sm leading-relaxed",
-                "text-[var(--text-primary)] placeholder:text-[var(--text-muted)]",
-                "focus:border-white/30 focus:outline-none focus:ring-2 focus:ring-white/10",
-                "disabled:cursor-not-allowed disabled:opacity-60",
-                "min-h-[48px] max-h-[200px]"
-              )}
-              style={{
-                height: "auto",
-                minHeight: "48px",
-              }}
-              onInput={(e) => {
-                const target = e.target as HTMLTextAreaElement;
-                target.style.height = "auto";
-                target.style.height = Math.min(target.scrollHeight, 200) + "px";
-              }}
-            />
+        {/* Bottom Toolbar (Visual Only for Aesthetics) */}
+        <div className="flex items-center justify-between px-4 pb-2.5">
+          <div className="flex items-center gap-1">
+             <button type="button" className="p-1.5 rounded-lg text-text-muted hover:bg-surface-elevated hover:text-text-primary transition-colors" title="Search">
+                <Globe className="h-4 w-4" />
+             </button>
+             <button type="button" className="p-1.5 rounded-lg text-text-muted hover:bg-surface-elevated hover:text-text-primary transition-colors" title="Image">
+                <Image className="h-4 w-4" />
+             </button>
+             <button type="button" className="p-1.5 rounded-lg text-text-muted hover:bg-surface-elevated hover:text-text-primary transition-colors" title="Code">
+                <FileCode className="h-4 w-4" />
+             </button>
           </div>
-
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={!canSend}
-            className={cn(
-              "flex h-12 w-12 items-center justify-center rounded-xl",
-              "transition-all duration-200",
-              canSend
-                ? "bg-white text-black hover:bg-gray-200"
-                : "bg-[var(--input-bg)] text-[var(--text-muted)] cursor-not-allowed"
-            )}
-            aria-label="Send prompt"
-          >
-            <Send className="h-5 w-5" />
-          </button>
+          <div className="text-[10px] text-text-muted select-none">
+            Enter to send, Shift + Enter for new line
+          </div>
         </div>
-
-        <p className="mt-2 text-center text-xs text-[var(--text-muted)]">
-          回车发送，Shift+Enter 换行
-        </p>
+      </div>
+      
+      <div className="mt-2 text-center text-xs text-text-muted">
+        Inputs are processed by third-party AI and responses may be inaccurate.
       </div>
     </div>
   );

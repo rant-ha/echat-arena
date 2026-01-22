@@ -14,12 +14,33 @@ interface VoteButtonsProps {
 const voteOptions: {
   value: VoteChoice;
   label: string;
-  help: string;
+  icon?: string;
+  colorClass: string;
 }[] = [
-  { value: "left", label: "A 更好", help: "我更喜欢 A" },
-  { value: "right", label: "B 更好", help: "我更喜欢 B" },
-  { value: "tie", label: "平局", help: "差不多" },
-  { value: "both_bad", label: "都差", help: "都不太行" },
+  { 
+    value: "left", 
+    label: "A is better", 
+    icon: "👈",
+    colorClass: "hover:bg-interactive-accent hover:border-interactive-accent hover:text-white" 
+  },
+  { 
+    value: "right", 
+    label: "B is better", 
+    icon: "👉",
+    colorClass: "hover:bg-interactive-accent hover:border-interactive-accent hover:text-white" 
+  },
+  { 
+    value: "tie", 
+    label: "Tie", 
+    icon: "🤝",
+    colorClass: "hover:bg-surface-elevated hover:border-text-secondary hover:text-text-primary" 
+  },
+  { 
+    value: "both_bad", 
+    label: "Both bad", 
+    icon: "👎",
+    colorClass: "hover:bg-negative hover:border-negative hover:text-white" 
+  },
 ];
 
 export function VoteButtons({ onVote, disabled, votedChoice }: VoteButtonsProps) {
@@ -36,25 +57,22 @@ export function VoteButtons({ onVote, disabled, votedChoice }: VoteButtonsProps)
             type="button"
             onClick={() => onVote(opt.value)}
             disabled={isDisabled}
-            whileHover={!isDisabled ? { scale: 1.03 } : {}}
-            whileTap={!isDisabled ? { scale: 0.97 } : {}}
+            whileHover={!isDisabled ? { scale: 1.02 } : {}}
+            whileTap={!isDisabled ? { scale: 0.98 } : {}}
             className={cn(
-              "group flex items-center gap-2 rounded-xl px-5 py-2.5",
-              "border border-border bg-card/60 backdrop-blur",
-              "text-sm font-medium transition-all duration-200",
-              "shadow-soft",
-              !isDisabled &&
-                "hover:border-primary/40 hover:bg-card/80 hover:text-primary",
-              isDisabled && "cursor-not-allowed opacity-60",
-              isLocked && !isSelected && "opacity-35",
+              "group flex items-center justify-center gap-2 rounded-full px-6 py-2.5",
+              "border border-border-strong bg-surface-tertiary",
+              "text-sm font-medium text-text-secondary transition-all duration-200",
+              "shadow-sm",
+              !isDisabled && opt.colorClass,
+              isDisabled && "cursor-not-allowed opacity-50",
+              isLocked && !isSelected && "opacity-30 grayscale",
               isSelected &&
-                "border-primary/60 bg-primary/10 text-primary ring-2 ring-primary/30"
+                "border-interactive-accent bg-interactive-accent text-white ring-2 ring-interactive-accent/30"
             )}
           >
+            {opt.icon && <span className="text-base">{opt.icon}</span>}
             <span>{opt.label}</span>
-            <span className="hidden text-xs text-muted group-hover:inline">
-              {opt.help}
-            </span>
           </motion.button>
         );
       })}

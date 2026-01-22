@@ -1,9 +1,17 @@
 "use client";
 
 import useSWR from "swr";
-import { Plus, Search, MessageSquare } from "lucide-react";
+import { 
+  Plus, 
+  MessageSquare, 
+  Trophy,
+  PanelLeftClose,
+  PanelLeftOpen, 
+  ChevronRight
+} from "lucide-react";
 import { createSupabaseBrowserClient } from "@/utils/supabase/client";
 import { cn } from "@/components/ui";
+import { useState, useCallback, useEffect } from "react";
 
 type RecentVoteRow = {
   id: string;
@@ -38,12 +46,16 @@ async function fetchRecentVotes(): Promise<RecentVoteRow[]> {
   return (data as RecentVoteRow[]) || [];
 }
 
-export function Sidebar(props: {
+interface SidebarProps {
   className?: string;
   onNavigate?: () => void;
   userEmail?: string | null;
-}) {
-  const { className, onNavigate, userEmail } = props;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+}
+
+export function Sidebar(props: SidebarProps) {
+  const { className, onNavigate, userEmail, collapsed = false, onToggleCollapse } = props;
 
   const { data, error, isLoading } = useSWR<RecentVoteRow[]>(
     "sidebar:recent-votes",
@@ -63,97 +75,99 @@ export function Sidebar(props: {
   return (
     <aside
       className={cn(
-        "flex h-full w-full flex-col",
-        "bg-[var(--sidebar-bg)]",
+        "flex h-full flex-col transition-[width] duration-300 ease-in-out border-r border-border-faint bg-surface-secondary",
+        collapsed ? "w-[60px]" : "w-[260px]",
         className
       )}
     >
-      {/* Logo area */}
-      <div className="flex items-center gap-3 px-3 py-3">
-        <a
-          href="/"
-          className="flex items-center gap-2 text-[var(--text-primary)] hover:opacity-80 transition-opacity"
-        >
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10">
-            <MessageSquare className="h-4 w-4" />
-          </div>
-        </a>
-        
-        {/* New Chat button */}
-        <a
-          href="/battle"
-          onClick={onNavigate}
-          className={cn(
-            "ml-auto flex h-8 w-8 items-center justify-center rounded-lg",
-            "hover:bg-white/10 transition-colors",
-            "text-[var(--text-primary)]"
-          )}
-          title="新对战"
-        >
-          <Plus className="h-5 w-5" />
-        </a>
-      </div>
-
-      {/* New Chat main button */}
-      <div className="px-2 py-2">
-        <a
-          href="/battle"
-          onClick={onNavigate}
-          className={cn(
-            "flex w-full items-center gap-3 rounded-lg px-3 py-2.5",
-            "text-sm text-[var(--text-primary)]",
-            "hover:bg-white/10 transition-colors"
-          )}
-        >
-          <Plus className="h-4 w-4" />
-          New chat
-        </a>
-        
+      {/* Header / Toggle Area */}
+      <div className={cn("flex items-center p-3 h-14", collapsed ? "justify-center" : "justify-between")}>
+        {/* Toggle Button */}
         <button
-          type="button"
-          className={cn(
-            "flex w-full items-center gap-3 rounded-lg px-3 py-2.5",
-            "text-sm text-[var(--text-primary)]",
-            "hover:bg-white/10 transition-colors"
-          )}
+          onClick={onToggleCollapse}
+          className="group flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary hover:bg-surface-elevated hover:text-text-primary transition-colors"
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          <Search className="h-4 w-4" />
-          Search chats
+          {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
         </button>
       </div>
 
-      {/* Your chats section */}
-      <div className="px-3 pt-4 pb-2">
-        <div className="text-xs font-medium text-[var(--text-muted)]">
-          Your chats
-        </div>
+      {/* Main Navigation */}
+      <div className="flex flex-col gap-1 p-2">
+        <a
+          href="/battle"
+          onClick={onNavigate}
+          className={cn(
+            "flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-surface-elevated group",
+            collapsed ? "justify-center" : ""
+          )}
+          title="New Chat"
+        >
+          <div className="flex h-6 w-6 shrink-0 items-center justify-center text-text-primary">
+             <Plus className="h-5 w-5" />
+          </div>
+          {!collapsed && (
+            <span className="text-sm font-medium text-text-primary">New Chat</span>
+          )}
+        </a>
+
+        <a
+          href="/leaderboard"
+          onClick={onNavigate}
+          className={cn(
+            "flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-surface-elevated group",
+            collapsed ? "justify-center" : ""
+          )}
+          title="Leaderboard"
+        >
+          <div className="flex h-6 w-6 shrink-0 items-center justify-center text-text-primary">
+            <Trophy className="h-5 w-5" />
+          </div>
+          {!collapsed && (
+            <>
+              <span className="text-sm font-medium text-text-primary flex-1">Leaderboard</span>
+              <ChevronRight className="h-4 w-4 text-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
+            </>
+          )}
+        </a>
       </div>
 
-      {/* History list */}
-      <div className="flex-1 overflow-y-auto px-2">
-        {isLoading ? (
-          <div className="px-3 py-2 text-xs text-[var(--text-muted)]">加载中…</div>
-        ) : error ? (
-          <div className="px-3 py-2 text-xs text-red-400">{String(error)}</div>
-        ) : rows.length === 0 ? (
-          <div className="px-3 py-2 text-xs text-[var(--text-muted)]">
-            暂无历史记录
+      {/* Recent Chats Section */}
+      <div className="flex-1 overflow-y-auto px-2 py-2">
+        {!collapsed && (
+          <div className="mb-2 px-2 text-xs font-medium text-text-muted/60 uppercase tracking-wider">
+            Recents
           </div>
+        )}
+        
+        {isLoading ? (
+          !collapsed && <div className="px-2 text-xs text-text-muted">Loading...</div>
+        ) : error ? (
+          !collapsed && <div className="px-2 text-xs text-negative">Error loading history</div>
+        ) : rows.length === 0 ? (
+          !collapsed && <div className="px-2 text-xs text-text-muted">No history yet</div>
         ) : (
-          <ul className="space-y-0.5">
+          <ul className="flex flex-col gap-0.5">
             {rows.map((r) => (
               <li key={r.id}>
                 <a
                   href={`/chat/${r.id}`}
                   onClick={onNavigate}
                   className={cn(
-                    "block rounded-lg px-3 py-2",
-                    "text-sm text-[var(--text-primary)]",
-                    "hover:bg-white/10 transition-colors",
-                    "truncate"
+                    "flex items-center gap-3 rounded-lg px-2 py-2 text-sm transition-colors hover:bg-surface-elevated",
+                    collapsed ? "justify-center" : ""
                   )}
+                  title={r.prompt}
                 >
-                  {truncate(r.prompt, 35)}
+                  {collapsed ? (
+                     <div className="flex h-6 w-6 shrink-0 items-center justify-center text-text-secondary">
+                       <MessageSquare className="h-4 w-4" />
+                     </div>
+                  ) : (
+                    <span className="truncate text-text-secondary hover:text-text-primary transition-colors">
+                      {truncate(r.prompt, 28)}
+                    </span>
+                  )}
                 </a>
               </li>
             ))}
@@ -161,29 +175,30 @@ export function Sidebar(props: {
         )}
       </div>
 
-      {/* Bottom User Profile */}
-      <div className="border-t border-[var(--border-color)] p-2">
+      {/* User Profile Footer */}
+      <div className="border-t border-border-faint p-2">
         <a
           href="/history"
           onClick={onNavigate}
           className={cn(
-            "flex w-full items-center gap-3 rounded-lg px-3 py-2.5",
-            "hover:bg-white/10 transition-colors"
+            "flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-surface-elevated",
+            collapsed ? "justify-center" : ""
           )}
+          title={userEmail || "Guest"}
         >
-          {/* Avatar */}
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-orange-400 to-pink-500 text-xs font-semibold text-white">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-elevated text-xs font-medium text-text-primary ring-1 ring-border-faint">
             {userInitials}
           </div>
-          {/* Email / Account info */}
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm text-[var(--text-primary)]">
-              {userEmail || "Guest"}
+          {!collapsed && (
+            <div className="flex min-w-0 flex-col">
+              <span className="truncate text-sm font-medium text-text-primary">
+                {userEmail ? userEmail.split('@')[0] : "Guest"}
+              </span>
+              <span className="truncate text-xs text-text-muted">
+                {userEmail || "Login to save history"}
+              </span>
             </div>
-            <div className="truncate text-xs text-[var(--text-muted)]">
-              Personal account
-            </div>
-          </div>
+          )}
         </a>
       </div>
     </aside>
