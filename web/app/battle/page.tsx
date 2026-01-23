@@ -573,9 +573,6 @@ export default function BattlePage() {
                 <span className="hidden sm:inline">New Round</span>
               </button>
             )}
-            <button className="px-4 py-1.5 text-sm font-medium rounded-lg bg-surface-elevated hover:bg-interactive-accent hover:text-white transition-colors text-text-primary">
-              Login
-            </button>
           </div>
         </header>
 

@@ -1,12 +1,11 @@
 "use client";
 
 import useSWR from "swr";
-import { 
-  Plus, 
-  MessageSquare, 
-  Trophy,
+import {
+  Plus,
+  MessageSquare,
   PanelLeftClose,
-  PanelLeftOpen, 
+  PanelLeftOpen,
   ChevronRight
 } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/utils/supabase/client";
@@ -111,25 +110,6 @@ export function Sidebar(props: SidebarProps) {
           )}
         </a>
 
-        <a
-          href="/leaderboard"
-          onClick={onNavigate}
-          className={cn(
-            "flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-surface-elevated group",
-            collapsed ? "justify-center" : ""
-          )}
-          title="Leaderboard"
-        >
-          <div className="flex h-6 w-6 shrink-0 items-center justify-center text-text-primary">
-            <Trophy className="h-5 w-5" />
-          </div>
-          {!collapsed && (
-            <>
-              <span className="text-sm font-medium text-text-primary flex-1">Leaderboard</span>
-              <ChevronRight className="h-4 w-4 text-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
-            </>
-          )}
-        </a>
       </div>
 
       {/* Recent Chats Section */}
