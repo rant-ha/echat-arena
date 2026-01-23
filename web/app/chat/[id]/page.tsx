@@ -10,6 +10,14 @@ import { ConversationTurnBlock } from "@/components/ConversationTurnBlock";
 
 type VoteChoice = "model_a" | "model_b" | "tie" | "both_bad" | string;
 
+type ConversationHistoryTurn = {
+  turn: number;
+  user: string;
+  reply_a: string;
+  reply_b: string;
+  timestamp?: string;
+};
+
 type VoteRow = {
   id: string;
   created_at: string;
@@ -18,6 +26,8 @@ type VoteRow = {
   reply_a: string;
   reply_b: string;
   user_vote: VoteChoice | null;
+  conversation_history?: ConversationHistoryTurn[];
+  turn_count?: number;
 };
 
 type PostVoteTurn = {
@@ -79,10 +89,10 @@ export default function ChatDetailPage() {
         if (authErr) throw authErr;
         if (!user) throw new Error("未登录");
 
-        // 只查询必要字段，不查询 ai_scores 和 model_config
+        // 查询包含多轮对话历史
         const { data, error: dbErr } = await supabase
           .from("votes")
-          .select("id, created_at, session_id, prompt, reply_a, reply_b, user_vote")
+          .select("id, created_at, session_id, prompt, reply_a, reply_b, user_vote, conversation_history, turn_count")
           .eq("id", id)
           .single();
 
@@ -198,30 +208,39 @@ export default function ChatDetailPage() {
                 <p className="text-sm text-red-300">{error}</p>
               </div>
             ) : vote ? (
-              <ConversationTurnBlock
-                turnIndex={1}
-                userMessage={vote.prompt}
-                leftContent={vote.reply_a}
-                rightContent={vote.reply_b}
-                leftAnonymousLabel="Model A"
-                rightAnonymousLabel="Model B"
-                leftIsStreaming={false}
-                rightIsStreaming={false}
-                isRevealed={true}
-                leftIsWinner={vote.user_vote === "model_a"}
-                rightIsWinner={vote.user_vote === "model_b"}
-                winnerSide={
-                  vote.user_vote === "model_a" ? "left" :
-                  vote.user_vote === "model_b" ? "right" : null
-                }
-                isLastTurn={true}
-                postVoteTurns={postTurns.map(t => ({
-                  turn_index: t.turn_index,
-                  user_message: t.user_message,
-                  assistant_message: t.assistant_message,
-                  created_at: t.created_at,
-                }))}
-              />
+              <div className="space-y-6">
+                {/* 渲染所有对话轮次 */}
+                {(vote.conversation_history && vote.conversation_history.length > 0
+                  ? vote.conversation_history
+                  : [{ turn: 1, user: vote.prompt, reply_a: vote.reply_a, reply_b: vote.reply_b }]
+                ).map((turn, idx, arr) => (
+                  <ConversationTurnBlock
+                    key={turn.turn}
+                    turnIndex={turn.turn}
+                    userMessage={turn.user}
+                    leftContent={turn.reply_a}
+                    rightContent={turn.reply_b}
+                    leftAnonymousLabel="Model A"
+                    rightAnonymousLabel="Model B"
+                    leftIsStreaming={false}
+                    rightIsStreaming={false}
+                    isRevealed={true}
+                    leftIsWinner={vote.user_vote === "model_a"}
+                    rightIsWinner={vote.user_vote === "model_b"}
+                    winnerSide={
+                      vote.user_vote === "model_a" ? "left" :
+                      vote.user_vote === "model_b" ? "right" : null
+                    }
+                    isLastTurn={idx === arr.length - 1}
+                    postVoteTurns={idx === arr.length - 1 ? postTurns.map(t => ({
+                      turn_index: t.turn_index,
+                      user_message: t.user_message,
+                      assistant_message: t.assistant_message,
+                      created_at: t.created_at,
+                    })) : undefined}
+                  />
+                ))}
+              </div>
             ) : (
               <div className="rounded-xl border border-[var(--border-color)] p-5">
                 <p className="text-sm text-[var(--text-muted)]">记录不存在</p>
