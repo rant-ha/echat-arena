@@ -1,7 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
+// Public paths that don't require user authentication
 const PUBLIC_PATHS = new Set(["/login", "/register"]);
+
+// Admin paths - handled separately from user auth
+const ADMIN_PREFIX = "/admin";
 
 function requiredEnv(name: string): string {
   const v = process.env[name];
@@ -12,12 +16,18 @@ function requiredEnv(name: string): string {
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Skip next internals/static.
+  // Skip next internals/static
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     pathname.startsWith("/robots.txt")
   ) {
+    return NextResponse.next();
+  }
+
+  // Admin routes - skip Supabase auth, let client-side handle admin auth
+  // This allows the admin section to work independently of user auth
+  if (pathname.startsWith(ADMIN_PREFIX)) {
     return NextResponse.next();
   }
 

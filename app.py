@@ -1,10 +1,12 @@
 import asyncio
 import csv
+import hashlib
 import io
 import json
 import os
 import random
 import re
+import secrets
 import sys
 import time
 import uuid
@@ -4273,6 +4275,1025 @@ async def admin_archive() -> JSONResponse:
         return _response(payload)
     except Exception as exc:
         return _error(f"archive failed: {exc}", status=500)
+
+
+# ============================================================================
+# Admin UI Authentication API Endpoints
+# ============================================================================
+
+# Admin password from environment
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+ADMIN_JWT_SECRET = os.environ.get("ADMIN_JWT_SECRET", os.urandom(32).hex())
+
+# Simple token storage (in production, use Redis or database)
+_ADMIN_TOKENS: Dict[str, datetime] = {}
+TOKEN_EXPIRY_HOURS = 24
+
+def _generate_admin_token() -> str:
+    """Generate a secure admin token."""
+    token = secrets.token_urlsafe(32)
+    _ADMIN_TOKENS[token] = datetime.utcnow() + timedelta(hours=TOKEN_EXPIRY_HOURS)
+    return token
+
+def _verify_admin_token(token: str) -> bool:
+    """Verify if admin token is valid and not expired."""
+    if not token or token not in _ADMIN_TOKENS:
+        return False
+    expiry = _ADMIN_TOKENS.get(token)
+    if expiry is None or datetime.utcnow() > expiry:
+        # Clean up expired token
+        _ADMIN_TOKENS.pop(token, None)
+        return False
+    return True
+
+def _verify_admin_password(password: str) -> bool:
+    """Verify admin password using constant-time comparison."""
+    if not ADMIN_PASSWORD:
+        return False
+    return secrets.compare_digest(password, ADMIN_PASSWORD)
+
+# Rate limiting for login attempts
+_LOGIN_ATTEMPTS: Dict[str, List[datetime]] = {}
+MAX_LOGIN_ATTEMPTS = 5
+LOGIN_LOCKOUT_MINUTES = 1
+
+def _check_rate_limit(ip: str) -> bool:
+    """Check if IP is rate limited. Returns True if allowed, False if blocked."""
+    now = datetime.utcnow()
+    cutoff = now - timedelta(minutes=LOGIN_LOCKOUT_MINUTES)
+
+    if ip not in _LOGIN_ATTEMPTS:
+        _LOGIN_ATTEMPTS[ip] = []
+
+    # Clean old attempts
+    _LOGIN_ATTEMPTS[ip] = [t for t in _LOGIN_ATTEMPTS[ip] if t > cutoff]
+
+    return len(_LOGIN_ATTEMPTS[ip]) < MAX_LOGIN_ATTEMPTS
+
+def _record_login_attempt(ip: str):
+    """Record a failed login attempt."""
+    if ip not in _LOGIN_ATTEMPTS:
+        _LOGIN_ATTEMPTS[ip] = []
+    _LOGIN_ATTEMPTS[ip].append(datetime.utcnow())
+
+
+@app.post(f"{API_PREFIX}/admin/login")
+async def admin_login(request: Request, body: Dict[str, Any] = Body(...)) -> JSONResponse:
+    """
+    Admin login endpoint - password authentication.
+
+    Request body:
+    {
+        "password": "admin_password"
+    }
+
+    Response (success):
+    {
+        "ok": true,
+        "data": {
+            "token": "secure_token",
+            "expires_at": "ISO timestamp"
+        }
+    }
+
+    Response (failure):
+    {
+        "ok": false,
+        "error": "Invalid password"
+    }
+    """
+    # Get client IP for rate limiting
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Check rate limit
+    if not _check_rate_limit(client_ip):
+        return _error("Too many login attempts. Please try again later.", status=429)
+
+    password = (body.get("password") or "").strip()
+
+    if not password:
+        _record_login_attempt(client_ip)
+        return _error("Password is required", status=400)
+
+    if not _verify_admin_password(password):
+        _record_login_attempt(client_ip)
+        # Log failed attempt
+        log_error(
+            error_type="admin_login_failed",
+            context={"ip": client_ip},
+            exc=None
+        )
+        return _error("Invalid password", status=401)
+
+    # Generate token
+    token = _generate_admin_token()
+    expires_at = _ADMIN_TOKENS[token]
+
+    # Log successful login
+    print(f"[ADMIN] Login successful from {client_ip}", file=sys.stderr)
+
+    return _response({
+        "token": token,
+        "expires_at": expires_at.isoformat() + "Z"
+    })
+
+
+@app.post(f"{API_PREFIX}/admin/verify")
+async def admin_verify(admin_token: str = Header(None, alias="admin-token")) -> JSONResponse:
+    """
+    Verify admin token validity.
+
+    Headers:
+    - admin-token: Token from login
+
+    Response:
+    {
+        "ok": true,
+        "data": {
+            "valid": true,
+            "expires_at": "ISO timestamp"
+        }
+    }
+    """
+    if not admin_token:
+        return _error("admin-token header is required", status=401)
+
+    if not _verify_admin_token(admin_token):
+        return _error("Invalid or expired token", status=401)
+
+    expires_at = _ADMIN_TOKENS.get(admin_token)
+
+    return _response({
+        "valid": True,
+        "expires_at": expires_at.isoformat() + "Z" if expires_at else None
+    })
+
+
+@app.post(f"{API_PREFIX}/admin/logout")
+async def admin_logout(admin_token: str = Header(None, alias="admin-token")) -> JSONResponse:
+    """
+    Admin logout - invalidate token.
+
+    Headers:
+    - admin-token: Token to invalidate
+
+    Response:
+    {
+        "ok": true,
+        "data": {
+            "logged_out": true
+        }
+    }
+    """
+    if admin_token and admin_token in _ADMIN_TOKENS:
+        del _ADMIN_TOKENS[admin_token]
+
+    return _response({
+        "logged_out": True
+    })
+
+
+# ============================================================================
+# Model Configuration CRUD API Endpoints
+# ============================================================================
+
+def _require_admin_token(admin_token: str) -> bool:
+    """Verify admin token and return True if valid, raise HTTPException if not."""
+    if not admin_token or not _verify_admin_token(admin_token):
+        raise HTTPException(status_code=401, detail="Invalid or expired admin token")
+    return True
+
+
+@app.get(f"{API_PREFIX}/admin/models")
+async def list_models(
+    page: int = 1,
+    page_size: int = 20,
+    include_disabled: bool = False,
+    include_deleted: bool = False,
+    admin_token: str = Header(None, alias="admin-token")
+) -> JSONResponse:
+    """
+    List all model configurations.
+
+    Query params:
+    - page: Page number (default 1)
+    - page_size: Items per page (default 20)
+    - include_disabled: Include disabled models (default false)
+    - include_deleted: Include soft-deleted models (default false)
+
+    Headers:
+    - admin-token: Admin authentication token
+    """
+    _require_admin_token(admin_token)
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return _error("Supabase not configured", status=500)
+
+    try:
+        # Build query
+        query_parts = []
+        params = []
+
+        base_query = "SELECT id, model_key, model_name, api_type, api_base, is_enabled, anony_only, weight, description, created_at, updated_at, deleted_at FROM model_configs"
+
+        conditions = []
+        if not include_deleted:
+            conditions.append("deleted_at IS NULL")
+        if not include_disabled:
+            conditions.append("is_enabled = true")
+
+        if conditions:
+            base_query += " WHERE " + " AND ".join(conditions)
+
+        base_query += " ORDER BY created_at DESC"
+
+        # Count total
+        count_query = f"SELECT COUNT(*) FROM model_configs"
+        if conditions:
+            count_query += " WHERE " + " AND ".join(conditions)
+
+        async with httpx.AsyncClient() as client:
+            # Get total count
+            count_resp = await client.post(
+                f"{SUPABASE_URL}/rest/v1/rpc/",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={"query": count_query},
+                timeout=10.0
+            )
+
+            # Get models with pagination
+            offset = (page - 1) * page_size
+
+            # Use Supabase REST API
+            url = f"{SUPABASE_URL}/rest/v1/model_configs"
+            params_dict = {
+                "select": "id,model_key,model_name,api_type,api_base,is_enabled,anony_only,weight,description,created_at,updated_at,deleted_at",
+                "order": "created_at.desc",
+                "offset": str(offset),
+                "limit": str(page_size),
+            }
+
+            if not include_deleted:
+                params_dict["deleted_at"] = "is.null"
+            if not include_disabled:
+                params_dict["is_enabled"] = "eq.true"
+
+            resp = await client.get(
+                url,
+                params=params_dict,
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Prefer": "count=exact",
+                },
+                timeout=10.0
+            )
+
+            if resp.status_code != 200:
+                return _error(f"Database error: {resp.text}", status=500)
+
+            models = resp.json()
+
+            # Get total from header
+            content_range = resp.headers.get("content-range", "")
+            total = 0
+            if "/" in content_range:
+                try:
+                    total = int(content_range.split("/")[1])
+                except:
+                    total = len(models)
+
+            # Mask API keys - only show last 4 chars
+            for model in models:
+                if model.get("api_base"):
+                    # Keep api_base visible for admin
+                    pass
+                # Remove encrypted key from response
+                model.pop("api_key_encrypted", None)
+
+            return _response({
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "models": models
+            })
+
+    except Exception as exc:
+        log_error(error_type="list_models_error", context={}, exc=exc)
+        return _error(f"Failed to list models: {str(exc)}", status=500)
+
+
+@app.post(f"{API_PREFIX}/admin/models")
+async def create_model(
+    body: Dict[str, Any] = Body(...),
+    admin_token: str = Header(None, alias="admin-token")
+) -> JSONResponse:
+    """
+    Create a new model configuration.
+
+    Request body:
+    {
+        "model_key": "unique-model-key",
+        "model_name": "Display Name",
+        "api_type": "openai",
+        "api_base": "https://api.example.com/v1",
+        "api_key": "sk-xxx",
+        "is_enabled": true,
+        "anony_only": true,
+        "weight": 100,
+        "description": "Optional description"
+    }
+    """
+    _require_admin_token(admin_token)
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return _error("Supabase not configured", status=500)
+
+    # Validate required fields
+    model_key = (body.get("model_key") or "").strip()
+    model_name = (body.get("model_name") or "").strip()
+
+    if not model_key:
+        return _error("model_key is required", status=400)
+    if not model_name:
+        return _error("model_name is required", status=400)
+
+    # Prepare data
+    data = {
+        "model_key": model_key,
+        "model_name": model_name,
+        "api_type": body.get("api_type", "openai"),
+        "api_base": body.get("api_base", ""),
+        "api_key_encrypted": body.get("api_key", ""),  # TODO: encrypt in production
+        "is_enabled": body.get("is_enabled", True),
+        "anony_only": body.get("anony_only", True),
+        "weight": body.get("weight", 100),
+        "description": body.get("description", ""),
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{SUPABASE_URL}/rest/v1/model_configs",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=representation",
+                },
+                json=data,
+                timeout=10.0
+            )
+
+            if resp.status_code == 409:
+                return _error("Model key already exists", status=409)
+            if resp.status_code not in (200, 201):
+                return _error(f"Database error: {resp.text}", status=500)
+
+            result = resp.json()
+            created = result[0] if isinstance(result, list) else result
+
+            # Remove sensitive data from response
+            created.pop("api_key_encrypted", None)
+
+            return _response({
+                "id": created.get("id"),
+                "model_key": created.get("model_key")
+            })
+
+    except Exception as exc:
+        log_error(error_type="create_model_error", context={"model_key": model_key}, exc=exc)
+        return _error(f"Failed to create model: {str(exc)}", status=500)
+
+
+@app.put(f"{API_PREFIX}/admin/models/{{model_id}}")
+async def update_model(
+    model_id: str,
+    body: Dict[str, Any] = Body(...),
+    admin_token: str = Header(None, alias="admin-token")
+) -> JSONResponse:
+    """
+    Update a model configuration.
+
+    Path params:
+    - model_id: UUID of the model
+
+    Request body (all fields optional):
+    {
+        "model_name": "Updated Name",
+        "api_base": "https://...",
+        "api_key": "new-key-or-null",  // null = keep existing
+        "is_enabled": false,
+        "weight": 50,
+        "description": "..."
+    }
+    """
+    _require_admin_token(admin_token)
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return _error("Supabase not configured", status=500)
+
+    # Prepare update data (only include provided fields)
+    update_data = {}
+
+    if "model_name" in body:
+        update_data["model_name"] = body["model_name"]
+    if "api_type" in body:
+        update_data["api_type"] = body["api_type"]
+    if "api_base" in body:
+        update_data["api_base"] = body["api_base"]
+    if "api_key" in body and body["api_key"] is not None:
+        update_data["api_key_encrypted"] = body["api_key"]  # TODO: encrypt
+    if "is_enabled" in body:
+        update_data["is_enabled"] = body["is_enabled"]
+    if "anony_only" in body:
+        update_data["anony_only"] = body["anony_only"]
+    if "weight" in body:
+        update_data["weight"] = body["weight"]
+    if "description" in body:
+        update_data["description"] = body["description"]
+
+    if not update_data:
+        return _error("No fields to update", status=400)
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.patch(
+                f"{SUPABASE_URL}/rest/v1/model_configs?id=eq.{model_id}",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=representation",
+                },
+                json=update_data,
+                timeout=10.0
+            )
+
+            if resp.status_code == 404:
+                return _error("Model not found", status=404)
+            if resp.status_code not in (200, 204):
+                return _error(f"Database error: {resp.text}", status=500)
+
+            result = resp.json()
+            if not result:
+                return _error("Model not found", status=404)
+
+            updated = result[0] if isinstance(result, list) else result
+            updated.pop("api_key_encrypted", None)
+
+            return _response({
+                "id": updated.get("id"),
+                "model_key": updated.get("model_key"),
+                "updated": True
+            })
+
+    except Exception as exc:
+        log_error(error_type="update_model_error", context={"model_id": model_id}, exc=exc)
+        return _error(f"Failed to update model: {str(exc)}", status=500)
+
+
+@app.delete(f"{API_PREFIX}/admin/models/{{model_id}}")
+async def delete_model(
+    model_id: str,
+    admin_token: str = Header(None, alias="admin-token")
+) -> JSONResponse:
+    """
+    Soft delete a model configuration.
+
+    Path params:
+    - model_id: UUID of the model
+    """
+    _require_admin_token(admin_token)
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return _error("Supabase not configured", status=500)
+
+    try:
+        async with httpx.AsyncClient() as client:
+            # Soft delete by setting deleted_at
+            resp = await client.patch(
+                f"{SUPABASE_URL}/rest/v1/model_configs?id=eq.{model_id}",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=representation",
+                },
+                json={"deleted_at": datetime.utcnow().isoformat()},
+                timeout=10.0
+            )
+
+            if resp.status_code not in (200, 204):
+                return _error(f"Database error: {resp.text}", status=500)
+
+            result = resp.json()
+            if not result:
+                return _error("Model not found", status=404)
+
+            return _response({
+                "id": model_id,
+                "deleted": True
+            })
+
+    except Exception as exc:
+        log_error(error_type="delete_model_error", context={"model_id": model_id}, exc=exc)
+        return _error(f"Failed to delete model: {str(exc)}", status=500)
+
+
+@app.get(f"{API_PREFIX}/admin/models/{{model_id}}")
+async def get_model(
+    model_id: str,
+    admin_token: str = Header(None, alias="admin-token")
+) -> JSONResponse:
+    """
+    Get a single model configuration by ID.
+
+    Path params:
+    - model_id: UUID of the model
+    """
+    _require_admin_token(admin_token)
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return _error("Supabase not configured", status=500)
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/model_configs?id=eq.{model_id}",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                },
+                timeout=10.0
+            )
+
+            if resp.status_code != 200:
+                return _error(f"Database error: {resp.text}", status=500)
+
+            result = resp.json()
+            if not result:
+                return _error("Model not found", status=404)
+
+            model = result[0]
+            # Mask API key
+            if model.get("api_key_encrypted"):
+                key = model["api_key_encrypted"]
+                model["api_key_masked"] = f"****{key[-4:]}" if len(key) > 4 else "****"
+            model.pop("api_key_encrypted", None)
+
+            return _response(model)
+
+    except Exception as exc:
+        log_error(error_type="get_model_error", context={"model_id": model_id}, exc=exc)
+        return _error(f"Failed to get model: {str(exc)}", status=500)
+
+
+# ============================================================================
+# User Management API Endpoints
+# ============================================================================
+
+@app.get(f"{API_PREFIX}/admin/users")
+async def list_users(
+    page: int = 1,
+    page_size: int = 50,
+    search: str = "",
+    admin_token: str = Header(None, alias="admin-token")
+) -> JSONResponse:
+    """
+    List all users with vote counts.
+
+    Query params:
+    - page: Page number (default 1)
+    - page_size: Items per page (default 50)
+    - search: Search by email (optional)
+
+    Headers:
+    - admin-token: Admin authentication token
+    """
+    _require_admin_token(admin_token)
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return _error("Supabase not configured", status=500)
+
+    try:
+        async with httpx.AsyncClient() as client:
+            # Get users from auth.users via admin API
+            # Note: This requires the Supabase service key with admin access
+            url = f"{SUPABASE_URL}/auth/v1/admin/users"
+            params = {
+                "page": page,
+                "per_page": page_size,
+            }
+
+            resp = await client.get(
+                url,
+                params=params,
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                },
+                timeout=10.0
+            )
+
+            if resp.status_code != 200:
+                return _error(f"Failed to fetch users: {resp.text}", status=500)
+
+            data = resp.json()
+            users = data.get("users", [])
+
+            # Filter by search if provided
+            if search:
+                search_lower = search.lower()
+                users = [u for u in users if search_lower in (u.get("email") or "").lower()]
+
+            # Get vote counts for each user
+            user_ids = [u["id"] for u in users]
+            vote_counts = {}
+
+            if user_ids:
+                # Query vote counts
+                votes_resp = await client.get(
+                    f"{SUPABASE_URL}/rest/v1/votes",
+                    params={
+                        "select": "user_id",
+                        "user_id": f"in.({','.join(user_ids)})",
+                    },
+                    headers={
+                        "apikey": SUPABASE_SERVICE_KEY,
+                        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    },
+                    timeout=10.0
+                )
+
+                if votes_resp.status_code == 200:
+                    votes = votes_resp.json()
+                    for vote in votes:
+                        uid = vote.get("user_id")
+                        if uid:
+                            vote_counts[uid] = vote_counts.get(uid, 0) + 1
+
+            # Format response
+            formatted_users = []
+            for user in users:
+                user_meta = user.get("user_metadata", {}) or {}
+                formatted_users.append({
+                    "id": user.get("id"),
+                    "email": user.get("email"),
+                    "created_at": user.get("created_at"),
+                    "last_sign_in_at": user.get("last_sign_in_at"),
+                    "vote_count": vote_counts.get(user.get("id"), 0),
+                    "is_disabled": user_meta.get("is_disabled", False),
+                })
+
+            return _response({
+                "total": data.get("total", len(users)),
+                "page": page,
+                "page_size": page_size,
+                "users": formatted_users
+            })
+
+    except Exception as exc:
+        log_error(error_type="list_users_error", context={}, exc=exc)
+        return _error(f"Failed to list users: {str(exc)}", status=500)
+
+
+@app.post(f"{API_PREFIX}/admin/users/{{user_id}}/disable")
+async def disable_user(
+    user_id: str,
+    admin_token: str = Header(None, alias="admin-token")
+) -> JSONResponse:
+    """
+    Disable a user by setting user_metadata.is_disabled = true.
+
+    Path params:
+    - user_id: UUID of the user
+    """
+    _require_admin_token(admin_token)
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return _error("Supabase not configured", status=500)
+
+    try:
+        async with httpx.AsyncClient() as client:
+            # Update user metadata via admin API
+            resp = await client.put(
+                f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "user_metadata": {"is_disabled": True}
+                },
+                timeout=10.0
+            )
+
+            if resp.status_code != 200:
+                return _error(f"Failed to disable user: {resp.text}", status=500)
+
+            return _response({
+                "user_id": user_id,
+                "is_disabled": True
+            })
+
+    except Exception as exc:
+        log_error(error_type="disable_user_error", context={"user_id": user_id}, exc=exc)
+        return _error(f"Failed to disable user: {str(exc)}", status=500)
+
+
+@app.post(f"{API_PREFIX}/admin/users/{{user_id}}/enable")
+async def enable_user(
+    user_id: str,
+    admin_token: str = Header(None, alias="admin-token")
+) -> JSONResponse:
+    """
+    Enable a user by setting user_metadata.is_disabled = false.
+
+    Path params:
+    - user_id: UUID of the user
+    """
+    _require_admin_token(admin_token)
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return _error("Supabase not configured", status=500)
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.put(
+                f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "user_metadata": {"is_disabled": False}
+                },
+                timeout=10.0
+            )
+
+            if resp.status_code != 200:
+                return _error(f"Failed to enable user: {resp.text}", status=500)
+
+            return _response({
+                "user_id": user_id,
+                "is_disabled": False
+            })
+
+    except Exception as exc:
+        log_error(error_type="enable_user_error", context={"user_id": user_id}, exc=exc)
+        return _error(f"Failed to enable user: {str(exc)}", status=500)
+
+
+@app.get(f"{API_PREFIX}/admin/users/{{user_id}}/votes")
+async def get_user_votes(
+    user_id: str,
+    page: int = 1,
+    page_size: int = 20,
+    admin_token: str = Header(None, alias="admin-token")
+) -> JSONResponse:
+    """
+    Get vote history for a specific user.
+
+    Path params:
+    - user_id: UUID of the user
+
+    Query params:
+    - page: Page number (default 1)
+    - page_size: Items per page (default 20)
+    """
+    _require_admin_token(admin_token)
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return _error("Supabase not configured", status=500)
+
+    try:
+        offset = (page - 1) * page_size
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/votes",
+                params={
+                    "select": "id,created_at,prompt,user_vote,turn_count",
+                    "user_id": f"eq.{user_id}",
+                    "order": "created_at.desc",
+                    "offset": str(offset),
+                    "limit": str(page_size),
+                },
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Prefer": "count=exact",
+                },
+                timeout=10.0
+            )
+
+            if resp.status_code != 200:
+                return _error(f"Failed to fetch votes: {resp.text}", status=500)
+
+            votes = resp.json()
+
+            # Get total from header
+            content_range = resp.headers.get("content-range", "")
+            total = 0
+            if "/" in content_range:
+                try:
+                    total = int(content_range.split("/")[1])
+                except:
+                    total = len(votes)
+
+            return _response({
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "votes": votes
+            })
+
+    except Exception as exc:
+        log_error(error_type="get_user_votes_error", context={"user_id": user_id}, exc=exc)
+        return _error(f"Failed to get user votes: {str(exc)}", status=500)
+
+
+# ============================================================================
+# Statistics API Endpoint
+# ============================================================================
+
+@app.get(f"{API_PREFIX}/admin/statistics")
+async def get_statistics(
+    period: str = "7d",
+    admin_token: str = Header(None, alias="admin-token")
+) -> JSONResponse:
+    """
+    Get system statistics.
+
+    Query params:
+    - period: Time period - 1d, 7d, 30d, all (default: 7d)
+
+    Headers:
+    - admin-token: Admin authentication token
+    """
+    _require_admin_token(admin_token)
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return _error("Supabase not configured", status=500)
+
+    # Calculate date range
+    now = datetime.utcnow()
+    if period == "1d":
+        start_date = now - timedelta(days=1)
+    elif period == "7d":
+        start_date = now - timedelta(days=7)
+    elif period == "30d":
+        start_date = now - timedelta(days=30)
+    else:
+        start_date = None
+
+    try:
+        async with httpx.AsyncClient() as client:
+            # Get total votes
+            votes_params = {
+                "select": "id,user_vote,created_at,user_id",
+            }
+            if start_date:
+                votes_params["created_at"] = f"gte.{start_date.isoformat()}"
+
+            votes_resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/votes",
+                params=votes_params,
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                },
+                timeout=30.0
+            )
+
+            votes = votes_resp.json() if votes_resp.status_code == 200 else []
+
+            # Count vote distribution
+            vote_distribution = {
+                "model_a": 0,
+                "model_b": 0,
+                "tie": 0,
+                "both_bad": 0,
+            }
+            for vote in votes:
+                v = vote.get("user_vote")
+                if v in vote_distribution:
+                    vote_distribution[v] += 1
+
+            # Get unique users who voted
+            unique_users = len(set(v.get("user_id") for v in votes if v.get("user_id")))
+
+            # Get total users from auth
+            users_resp = await client.get(
+                f"{SUPABASE_URL}/auth/v1/admin/users",
+                params={"page": 1, "per_page": 1},
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                },
+                timeout=10.0
+            )
+
+            total_users = 0
+            if users_resp.status_code == 200:
+                users_data = users_resp.json()
+                total_users = users_data.get("total", 0)
+
+            # Get sessions count
+            sessions_params = {
+                "select": "session_id",
+            }
+            if start_date:
+                sessions_params["created_at"] = f"gte.{start_date.isoformat()}"
+
+            sessions_resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/arena_sessions",
+                params=sessions_params,
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Prefer": "count=exact",
+                },
+                timeout=10.0
+            )
+
+            total_sessions = 0
+            if sessions_resp.status_code == 200:
+                content_range = sessions_resp.headers.get("content-range", "")
+                if "/" in content_range:
+                    try:
+                        total_sessions = int(content_range.split("/")[1])
+                    except:
+                        total_sessions = len(sessions_resp.json())
+
+            # Get enabled models count
+            models_resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/model_configs",
+                params={
+                    "select": "id",
+                    "is_enabled": "eq.true",
+                    "deleted_at": "is.null",
+                },
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Prefer": "count=exact",
+                },
+                timeout=10.0
+            )
+
+            active_models = 0
+            if models_resp.status_code == 200:
+                content_range = models_resp.headers.get("content-range", "")
+                if "/" in content_range:
+                    try:
+                        active_models = int(content_range.split("/")[1])
+                    except:
+                        active_models = len(models_resp.json())
+
+            # Calculate daily activity (last 7 days)
+            daily_activity = []
+            for i in range(7):
+                day = now - timedelta(days=i)
+                day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+                day_end = day_start + timedelta(days=1)
+
+                day_votes = [
+                    v for v in votes
+                    if v.get("created_at") and
+                    day_start.isoformat() <= v["created_at"] < day_end.isoformat()
+                ]
+
+                daily_activity.append({
+                    "date": day_start.strftime("%Y-%m-%d"),
+                    "votes": len(day_votes),
+                })
+
+            daily_activity.reverse()
+
+            return _response({
+                "overview": {
+                    "total_votes": len(votes),
+                    "total_users": total_users,
+                    "active_users": unique_users,
+                    "total_sessions": total_sessions,
+                    "active_models": active_models,
+                },
+                "vote_distribution": vote_distribution,
+                "daily_activity": daily_activity,
+                "period": period,
+            })
+
+    except Exception as exc:
+        log_error(error_type="get_statistics_error", context={}, exc=exc)
+        return _error(f"Failed to get statistics: {str(exc)}", status=500)
 
 
 if __name__ == "__main__":  # pragma: no cover
