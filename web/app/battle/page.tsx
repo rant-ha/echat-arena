@@ -3,11 +3,12 @@
 import { useMemo, useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { Swords, RotateCcw, Menu, X, ChevronDown, Trophy } from "lucide-react";
+import { Swords, RotateCcw, Menu, X, ChevronDown } from "lucide-react";
 import { useBattleStream } from "@/hooks/useBattleStream";
-import { ResponseCard, ConversationTurn } from "@/components/ResponseCard";
-import type { AiJudgeScores } from "@/components/ResponseCard";
+import { ConversationTurnBlock } from "@/components/ConversationTurnBlock";
+import type { AiJudgeScores } from "@/components/AIResponseCard";
 import { VoteButtons, VoteChoice } from "@/components/VoteButtons";
+import { useRef } from "react";
 import { PromptInput } from "@/components/PromptInput";
 import { Sidebar } from "@/components/Sidebar";
 import { cn } from "@/components/ui";
@@ -458,23 +459,13 @@ export default function BattlePage() {
   const revealedLeftLabel = armLabel(revealLeft?.arm);
   const revealedRightLabel = armLabel(revealRight?.arm);
 
-  const leftHistory = useMemo(() =>
-    conversationHistory.map(turn => ({
-      turn: turn.turn,
-      user: turn.user,
-      reply: turn.reply_a
-    })),
-    [conversationHistory]
-  );
-
-  const rightHistory = useMemo(() =>
-    conversationHistory.map(turn => ({
-      turn: turn.turn,
-      user: turn.user,
-      reply: turn.reply_b
-    })),
-    [conversationHistory]
-  );
+  const getWinnerStatus = (side: "left" | "right"): boolean | undefined => {
+    if (!voteState.isRevealed) return undefined;
+    if (voteState.choice === "tie" || voteState.choice === "both_bad") {
+      return undefined;
+    }
+    return voteState.choice === side;
+  };
 
   const strategySubtitle = useMemo(() => {
     const parts: string[] = [];
@@ -501,13 +492,20 @@ export default function BattlePage() {
     return null;
   }, [voteState.result, revealRight?.arm]);
 
-  const getWinnerStatus = (side: "left" | "right"): boolean | undefined => {
-    if (!voteState.isRevealed) return undefined;
-    if (voteState.choice === "tie" || voteState.choice === "both_bad") {
-      return undefined;
+  // Auto-scroll to bottom on new content
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (chatContainerRef.current && (isStreaming || conversationHistory.length > 0)) {
+      const timer = setTimeout(() => {
+        chatContainerRef.current?.scrollTo({
+          top: chatContainerRef.current.scrollHeight,
+          behavior: 'smooth'
+        });
+      }, 100);
+      return () => clearTimeout(timer);
     }
-    return voteState.choice === side;
-  };
+  }, [conversationHistory.length, leftText, rightText, isStreaming]);
 
   return (
     <div className="flex h-screen bg-surface-primary text-text-primary overflow-hidden">
@@ -582,7 +580,7 @@ export default function BattlePage() {
         </header>
 
         {/* Scrollable Chat Area */}
-        <main className="flex-1 overflow-y-auto relative scrollbar-thin">
+        <main ref={chatContainerRef} className="flex-1 overflow-y-auto relative scrollbar-thin">
           <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 pb-40">
             <AnimatePresence mode="wait">
               {status === "idle" && !hasContent && (
@@ -616,70 +614,70 @@ export default function BattlePage() {
             )}
 
             {hasContent && (
-              <div className="flex flex-col gap-6">
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={cn(
-                    "grid gap-4 w-full",
-                    "grid-cols-1 md:grid-cols-2",
-                    "min-h-[500px] h-[60vh]"
-                  )}
-                >
-                  <div className="h-full">
-                    <ResponseCard
-                      side="left"
-                      anonymousLabel="Model A"
-                      revealed={
-                        voteState.isRevealed
-                          ? {
-                              label: revealedLeftLabel || "Revealed",
-                              subtitle:
-                                revealedLeftLabel === "Strategy" ? strategySubtitle : undefined,
-                            }
-                          : undefined
-                      }
-                      conversationHistory={leftHistory}
-                      content={leftText}
-                      isStreaming={leftStreaming}
-                      isRevealed={voteState.isRevealed}
-                      isWinner={getWinnerStatus("left")}
-                      judgeScores={judgeScoresLeft}
-                      judgeLoading={voteState.isSubmitting}
-                      isLoser={voteState.isRevealed && winnerSide === 'right'}
-                      postVoteTurns={winnerSide === 'left' ? postVoteTurns : undefined}
-                      postVoteCurrentReply={winnerSide === 'left' ? postVoteCurrentReply : undefined}
-                      isPostVoteChatting={winnerSide === 'left' ? isPostVoteChatting : false}
-                    />
-                  </div>
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex flex-col"
+              >
+                {/* Historical conversation turns */}
+                {conversationHistory.map((turn, idx) => (
+                  <ConversationTurnBlock
+                    key={turn.turn}
+                    turnIndex={turn.turn}
+                    userMessage={turn.user}
+                    leftContent={turn.reply_a}
+                    rightContent={turn.reply_b}
+                    leftAnonymousLabel="Model A"
+                    rightAnonymousLabel="Model B"
+                    leftRevealed={
+                      voteState.isRevealed
+                        ? {
+                            label: revealedLeftLabel || "Revealed",
+                            subtitle: revealedLeftLabel === "Strategy" ? strategySubtitle : undefined,
+                          }
+                        : undefined
+                    }
+                    rightRevealed={
+                      voteState.isRevealed
+                        ? {
+                            label: revealedRightLabel || "Revealed",
+                            subtitle: revealedRightLabel === "Strategy" ? strategySubtitle : undefined,
+                          }
+                        : undefined
+                    }
+                    leftIsStreaming={false}
+                    rightIsStreaming={false}
+                    isRevealed={voteState.isRevealed}
+                    leftIsWinner={getWinnerStatus("left")}
+                    rightIsWinner={getWinnerStatus("right")}
+                    leftJudgeScores={judgeScoresLeft}
+                    rightJudgeScores={judgeScoresRight}
+                    judgeLoading={voteState.isSubmitting}
+                    winnerSide={winnerSide}
+                    isLastTurn={idx === conversationHistory.length - 1 && status !== "streaming"}
+                    postVoteTurns={postVoteTurns}
+                    postVoteCurrentReply={postVoteCurrentReply}
+                    isPostVoteChatting={isPostVoteChatting}
+                  />
+                ))}
 
-                  <div className="h-full">
-                    <ResponseCard
-                      side="right"
-                      anonymousLabel="Model B"
-                      revealed={
-                        voteState.isRevealed
-                          ? {
-                              label: revealedRightLabel || "Revealed",
-                              subtitle:
-                                revealedRightLabel === "Strategy" ? strategySubtitle : undefined,
-                            }
-                          : undefined
-                      }
-                      conversationHistory={rightHistory}
-                      content={rightText}
-                      isStreaming={rightStreaming}
-                      isRevealed={voteState.isRevealed}
-                      isWinner={getWinnerStatus("right")}
-                      judgeScores={judgeScoresRight}
-                      judgeLoading={voteState.isSubmitting}
-                      isLoser={voteState.isRevealed && winnerSide === 'left'}
-                      postVoteTurns={winnerSide === 'right' ? postVoteTurns : undefined}
-                      postVoteCurrentReply={winnerSide === 'right' ? postVoteCurrentReply : undefined}
-                      isPostVoteChatting={winnerSide === 'right' ? isPostVoteChatting : false}
-                    />
-                  </div>
-                </motion.div>
+                {/* Current streaming turn (when actively streaming) */}
+                {isStreaming && prompt && !conversationHistory.some(t => t.turn === (currentTurn || 1)) && (
+                  <ConversationTurnBlock
+                    key="current-streaming"
+                    turnIndex={currentTurn || conversationHistory.length + 1}
+                    userMessage={prompt}
+                    leftContent={leftText}
+                    rightContent={rightText}
+                    leftAnonymousLabel="Model A"
+                    rightAnonymousLabel="Model B"
+                    leftIsStreaming={leftStreaming}
+                    rightIsStreaming={rightStreaming}
+                    isRevealed={false}
+                    winnerSide={null}
+                    isLastTurn={true}
+                  />
+                )}
 
                 {/* Vote Section */}
                 <AnimatePresence>
@@ -711,7 +709,7 @@ export default function BattlePage() {
                     </motion.div>
                   )}
                 </AnimatePresence>
-              </div>
+              </motion.div>
             )}
           </div>
         </main>
