@@ -155,7 +155,7 @@ export function AIResponseCard({
     <div
       className={cn(
         "perspective-1000 h-full w-full transition-all duration-300",
-        isLoser ? "grayscale opacity-60 pointer-events-none" : ""
+        isLoser ? "grayscale opacity-60" : ""
       )}
     >
       <motion.div
