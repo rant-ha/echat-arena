@@ -80,8 +80,8 @@ export function ConversationTurnBlock({
       <UserMessageBubble message={userMessage} className="mb-4" />
 
       {/* AI Responses - Side by Side */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 min-h-[200px]">
-        <div className="h-full min-h-[200px]">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 min-h-[400px]">
+        <div className="h-full min-h-[400px]">
           <AIResponseCard
             side="left"
             anonymousLabel={leftAnonymousLabel}
@@ -99,7 +99,7 @@ export function ConversationTurnBlock({
           />
         </div>
 
-        <div className="h-full min-h-[200px]">
+        <div className="h-full min-h-[400px]">
           <AIResponseCard
             side="right"
             anonymousLabel={rightAnonymousLabel}
