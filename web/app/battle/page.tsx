@@ -3,7 +3,7 @@
 import { useMemo, useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { Swords, RotateCcw, Menu, X, ChevronDown } from "lucide-react";
+import { Swords, RotateCcw, Menu, X } from "lucide-react";
 import { useBattleStream } from "@/hooks/useBattleStream";
 import { ConversationTurnBlock } from "@/components/ConversationTurnBlock";
 import type { AiJudgeScores } from "@/components/AIResponseCard";
@@ -11,6 +11,7 @@ import { VoteButtons, VoteChoice } from "@/components/VoteButtons";
 import { useRef } from "react";
 import { PromptInput } from "@/components/PromptInput";
 import { Sidebar } from "@/components/Sidebar";
+import { ModelSelector } from "@/components/ModelSelector";
 import { cn } from "@/components/ui";
 import { createSupabaseBrowserClient } from "@/utils/supabase/client";
 
@@ -96,6 +97,42 @@ export default function BattlePage() {
   }>>([]);
   const [currentTurn, setCurrentTurn] = useState(0);
   const [turnWarning, setTurnWarning] = useState(false);
+
+  // Model selector state
+  const [selectedModelKey, setSelectedModelKey] = useState<string | null>(null);
+  const [defaultModelKey, setDefaultModelKey] = useState<string | null>(null);
+  const MODEL_STORAGE_KEY = "echat-arena-v1-selected-model";
+
+  // Load model selection from localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(MODEL_STORAGE_KEY);
+      if (stored) {
+        setSelectedModelKey(stored);
+      }
+    } catch {
+      // localStorage might be unavailable
+    }
+  }, []);
+
+  // Handle model change
+  const handleModelChange = useCallback((modelKey: string) => {
+    setSelectedModelKey(modelKey);
+    try {
+      localStorage.setItem(MODEL_STORAGE_KEY, modelKey);
+    } catch {
+      // localStorage might be unavailable in private mode
+    }
+  }, []);
+
+  // Handle default model loaded from API
+  const handleDefaultModelLoaded = useCallback((defaultKey: string | null) => {
+    setDefaultModelKey(defaultKey);
+    // If no selection yet, use default
+    if (!selectedModelKey && defaultKey) {
+      setSelectedModelKey(defaultKey);
+    }
+  }, [selectedModelKey]);
 
   // M-06: Memoize callbacks to prevent unnecessary re-renders
   const handleWarning = useCallback((message: string) => {
@@ -266,18 +303,21 @@ export default function BattlePage() {
   const handleSubmitPrompt = useCallback(
     (inputPrompt: string) => {
       setPrompt(inputPrompt);
-      
+
       // 投票后继续对话分支
       if (voteState.isRevealed && winnerSide) {
         postVoteChatSend(inputPrompt);
         return;
       }
-      
+
       // 投票前的正常流程
       if (voteState.isRevealed) {
         return; // 已投票但无 winner，不允许继续
       }
-      
+
+      // Determine model to use: selected > default > undefined (backend fallback)
+      const modelToUse = selectedModelKey || defaultModelKey || undefined;
+
       // Only reset vote state on first turn
       if (currentTurn === 0) {
         setVoteState({
@@ -287,9 +327,9 @@ export default function BattlePage() {
           error: null,
           result: null,
         });
-        startBattle(inputPrompt);
+        startBattle(inputPrompt, modelToUse);
       } else {
-        // Continue conversation for subsequent turns
+        // Continue conversation for subsequent turns (uses session's model)
         if (!meta?.session_id) {
           setVoteState((prev) => ({
             ...prev,
@@ -300,7 +340,7 @@ export default function BattlePage() {
         continueConversation(meta.session_id, inputPrompt);
       }
     },
-    [startBattle, continueConversation, currentTurn, meta?.session_id, voteState.isRevealed, winnerSide, postVoteChatSend]
+    [startBattle, continueConversation, currentTurn, meta?.session_id, voteState.isRevealed, winnerSide, postVoteChatSend, selectedModelKey, defaultModelKey]
   );
 
   // Append to conversation history when a round completes
@@ -553,13 +593,12 @@ export default function BattlePage() {
               {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
 
-            <button
-              type="button"
-              className="flex items-center gap-2 rounded-lg py-1.5 px-2 text-sm font-semibold text-text-primary hover:bg-surface-elevated transition-colors"
-            >
-              Model Arena
-              <ChevronDown className="h-3.5 w-3.5 text-text-muted" />
-            </button>
+            <ModelSelector
+              selectedModelKey={selectedModelKey}
+              onModelChange={handleModelChange}
+              onDefaultLoaded={handleDefaultModelLoaded}
+              disabled={isStreaming}
+            />
           </div>
 
           <div className="flex items-center gap-2">

@@ -2678,16 +2678,24 @@ async def _generate_stream_to_queue(
     return "".join(buf)
 
 
-async def _battle_sse(req: Request, prompt: str, session_id: str) -> AsyncIterator[bytes]:
+async def _battle_sse(req: Request, prompt: str, session_id: str, model_key: Optional[str] = None) -> AsyncIterator[bytes]:
     # Controlled single-model A/B: both sides use the same underlying model id
     # Arms denote which system prompt to use: baseline (empty/simple) vs empathy (templated)
     arms = ["baseline", "empathy"]
     random.shuffle(arms)
     left_arm, right_arm = arms[0], arms[1]
 
-    # Use single REPLY_MODEL_NAME as the base model if provided; otherwise fall back
-    # to the legacy BASELINE/EMPATHY IDs chosen above.
+    # Resolve model to use: user-selected model_key takes precedence
     base_model_id = REPLY_MODEL_NAME or BASELINE_MODEL_ID or EMPATHY_MODEL_ID
+
+    if model_key:
+        try:
+            _get_endpoint(model_key)  # Validate model_key exists in config
+            base_model_id = model_key
+        except RuntimeError:
+            log_error("invalid_model_key", {"model_key": model_key, "session": session_id, "fallback": base_model_id}, None)
+            # Keep default base_model_id
+
     left_model_id = base_model_id
     right_model_id = base_model_id
 
@@ -2862,6 +2870,7 @@ async def _battle_sse(req: Request, prompt: str, session_id: str) -> AsyncIterat
         "ai_scores": None,
         # Record base model name for downstream analysis
         "base_model_name": base_model_id,
+        "base_model_key": model_key or base_model_id,  # Track user-selected model
         "created_at": _utc_now_iso(),
         "conversation_history": [],
         "turn_count": 0,
@@ -2982,10 +2991,106 @@ async def get_config() -> JSONResponse:
     return _response(data)
 
 
+# Rate limiting for public models endpoint
+_MODELS_RATE_LIMIT: Dict[str, List[float]] = {}
+_MODELS_RATE_LIMIT_WINDOW = 60  # seconds
+_MODELS_RATE_LIMIT_MAX = 60  # requests per window
+
+
+def _check_models_rate_limit(client_ip: str) -> bool:
+    """Check if client is within rate limit for /models endpoint."""
+    now = time.time()
+    if client_ip not in _MODELS_RATE_LIMIT:
+        _MODELS_RATE_LIMIT[client_ip] = []
+    _MODELS_RATE_LIMIT[client_ip] = [
+        t for t in _MODELS_RATE_LIMIT[client_ip]
+        if now - t < _MODELS_RATE_LIMIT_WINDOW
+    ]
+    if len(_MODELS_RATE_LIMIT[client_ip]) >= _MODELS_RATE_LIMIT_MAX:
+        return False
+    _MODELS_RATE_LIMIT[client_ip].append(now)
+    return True
+
+
+@app.get(f"{API_PREFIX}/models")
+async def list_public_models(req: Request) -> JSONResponse:
+    """
+    List enabled models for public selection.
+    No authentication required. Rate limited to 60 req/min per IP.
+    """
+    client_ip = req.client.host if req.client else "unknown"
+    if not _check_models_rate_limit(client_ip):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return JSONResponse({
+            "ok": True,
+            "data": {
+                "models": [],
+                "default_model_key": REPLY_MODEL_NAME or BASELINE_MODEL_ID or None
+            }
+        })
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/model_configs",
+                params={
+                    "select": "model_key,model_name,description,is_default,weight",
+                    "is_enabled": "eq.true",
+                    "deleted_at": "is.null",
+                    "order": "weight.desc,is_default.desc,created_at.asc"
+                },
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                },
+                timeout=5.0
+            )
+
+            if resp.status_code != 200:
+                raise RuntimeError(f"DB query failed: {resp.status_code}")
+
+            models = resp.json()
+            default_model_key = None
+            for m in models:
+                if m.get("is_default"):
+                    default_model_key = m.get("model_key")
+                    break
+
+            if not default_model_key:
+                default_model_key = models[0].get("model_key") if models else (REPLY_MODEL_NAME or BASELINE_MODEL_ID)
+
+            safe_models = [
+                {
+                    "model_key": m.get("model_key"),
+                    "model_name": m.get("model_name"),
+                    "description": m.get("description"),
+                    "is_default": m.get("is_default", False)
+                }
+                for m in models
+            ]
+
+            return JSONResponse({
+                "ok": True,
+                "data": {"models": safe_models, "default_model_key": default_model_key}
+            })
+    except Exception as e:
+        log_error("list_models_error", {"error": str(e)}, e)
+        return JSONResponse({
+            "ok": True,
+            "data": {
+                "models": [],
+                "default_model_key": REPLY_MODEL_NAME or BASELINE_MODEL_ID or None
+            }
+        })
+
+
 @app.post(f"{API_PREFIX}/battle")
 async def battle(req: Request, body: Dict[str, Any] = Body(...)) -> StreamingResponse:
     prompt = (body.get("prompt") or "").strip()
-    
+    model_key = (body.get("model_key") or "").strip() or None  # NEW: user-selected model
+
     # M-04: Input validation
     is_valid, error_msg = _validate_user_input(prompt)
     if not is_valid:
@@ -3010,7 +3115,7 @@ async def battle(req: Request, body: Dict[str, Any] = Body(...)) -> StreamingRes
     async def event_stream() -> AsyncIterator[bytes]:
         try:
             yield _sse_comment("init")
-            async for chunk in _battle_sse(req, prompt, session_id):
+            async for chunk in _battle_sse(req, prompt, session_id, model_key):
                 yield chunk
         except Exception as exc:
             # Phase 8.2: Unified SSE frame schema - error frame
