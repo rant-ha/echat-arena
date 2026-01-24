@@ -3659,17 +3659,19 @@ async def list_sessions(
     page: int = 1,
     page_size: int = 50,
     include_deleted: bool = False,
-    admin_key: str = Header(None)
+    admin_token: str = Header(None, alias="admin-token")
 ) -> JSONResponse:
     """
     管理员接口：列表会话与统计
-    
+
     请求参数：
     - page: 页码（默认 1）
     - page_size: 每页数量（默认 50）
     - include_deleted: 是否包含已删除会话（默认 False）
-    - admin_key: 管理员 API 密钥（必需）
-    
+
+    请求头：
+    - admin-token: 管理员认证令牌（必需）
+
     返回：
     {
         "success": bool,
@@ -3688,11 +3690,9 @@ async def list_sessions(
         ]
     }
     """
-    # Check admin key
-    ADMIN_API_KEY = os.environ.get("ARENA_ADMIN_API_KEY", "")
-    if admin_key != ADMIN_API_KEY:
-        raise HTTPException(status_code=403, detail="Unauthorized")
-    
+    # Check admin token
+    _require_admin_token(admin_token)
+
     # Use the SessionStore's list_sessions method
     result = await _SESSION_STORE.list_sessions(
         page=page,
@@ -3706,30 +3706,28 @@ async def list_sessions(
 @app.post(f"{API_PREFIX}/session/delete")
 async def soft_delete_session(
     session_id: str = Body(..., embed=True),
-    admin_key: str = Header(None)
+    admin_token: str = Header(None, alias="admin-token")
 ) -> JSONResponse:
     """
     管理员接口：软删除会话
-    
+
     请求体：
     {
         "session_id": "会话ID"
     }
-    
+
     请求头：
-    - admin_key: 管理员 API 密钥（必需）
-    
+    - admin-token: 管理员认证令牌（必需）
+
     返回：
     {
         "success": bool,
         "session_id": str
     }
     """
-    # Check admin key
-    ADMIN_API_KEY = os.environ.get("ARENA_ADMIN_API_KEY", "")
-    if admin_key != ADMIN_API_KEY:
-        raise HTTPException(status_code=403, detail="Unauthorized")
-    
+    # Check admin token
+    _require_admin_token(admin_token)
+
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
     
@@ -3748,30 +3746,28 @@ async def soft_delete_session(
 @app.post(f"{API_PREFIX}/session/restore")
 async def restore_session_endpoint(
     session_id: str = Body(..., embed=True),
-    admin_key: str = Header(None)
+    admin_token: str = Header(None, alias="admin-token")
 ) -> JSONResponse:
     """
     管理员接口：恢复被软删除的会话
-    
+
     请求体：
     {
         "session_id": "会话ID"
     }
-    
+
     请求头：
-    - admin_key: 管理员 API 密钥（必需）
-    
+    - admin-token: 管理员认证令牌（必需）
+
     返回：
     {
         "success": bool,
         "session_id": str
     }
     """
-    # Check admin key
-    ADMIN_API_KEY = os.environ.get("ARENA_ADMIN_API_KEY", "")
-    if admin_key != ADMIN_API_KEY:
-        raise HTTPException(status_code=403, detail="Unauthorized")
-    
+    # Check admin token
+    _require_admin_token(admin_token)
+
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
     
@@ -3790,19 +3786,19 @@ async def restore_session_endpoint(
 @app.post(f"{API_PREFIX}/sessions/cleanup")
 async def cleanup_deleted_sessions_endpoint(
     max_age_days: int = Body(30, embed=True),
-    admin_key: str = Header(None)
+    admin_token: str = Header(None, alias="admin-token")
 ) -> JSONResponse:
     """
     管理员接口：清理超过指定天数的软删除会话
-    
+
     请求体：
     {
         "max_age_days": 30  # 默认 30 天
     }
-    
+
     请求头：
-    - admin_key: 管理员 API 密钥（必需）
-    
+    - admin-token: 管理员认证令牌（必需）
+
     返回：
     {
         "success": bool,
@@ -3810,11 +3806,9 @@ async def cleanup_deleted_sessions_endpoint(
         "max_age_days": int
     }
     """
-    # Check admin key
-    ADMIN_API_KEY = os.environ.get("ARENA_ADMIN_API_KEY", "")
-    if admin_key != ADMIN_API_KEY:
-        raise HTTPException(status_code=403, detail="Unauthorized")
-    
+    # Check admin token
+    _require_admin_token(admin_token)
+
     # Perform cleanup
     deleted_count = await _SESSION_STORE.cleanup_deleted_sessions(max_age_days)
     

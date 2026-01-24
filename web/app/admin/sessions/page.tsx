@@ -63,7 +63,7 @@ export default function SessionsPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "admin_key": adminKey,
+          "admin-token": adminKey,
         },
         body: JSON.stringify({
           page: 1,
@@ -103,7 +103,7 @@ export default function SessionsPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "admin_key": token,
+          "admin-token": token,
         },
         body: JSON.stringify({ session_id: sessionId }),
       });
@@ -131,7 +131,7 @@ export default function SessionsPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "admin_key": token,
+          "admin-token": token,
         },
         body: JSON.stringify({ session_id: sessionId }),
       });
@@ -165,7 +165,7 @@ export default function SessionsPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "admin_key": token,
+          "admin-token": token,
         },
         body: JSON.stringify({ max_age_days: 7 }),
       });
