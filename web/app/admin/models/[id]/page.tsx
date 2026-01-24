@@ -47,6 +47,21 @@ export default function EditModelPage() {
           }
         );
 
+        // 先检查 HTTP 状态码
+        if (!res.ok) {
+          if (res.status === 401) {
+            setError("登录已过期，请重新登录");
+            return;
+          }
+          try {
+            const data = await res.json();
+            setError(data.detail || data.error || `请求失败 (${res.status})`);
+          } catch {
+            setError(`请求失败 (HTTP ${res.status})`);
+          }
+          return;
+        }
+
         const data = await res.json();
 
         if (data.ok) {
@@ -131,6 +146,21 @@ export default function EditModelPage() {
         },
         body: JSON.stringify(updateData),
       });
+
+      // 先检查 HTTP 状态码
+      if (!res.ok) {
+        if (res.status === 401) {
+          setError("登录已过期，请重新登录");
+          return;
+        }
+        try {
+          const data = await res.json();
+          setError(data.detail || data.error || `请求失败 (${res.status})`);
+        } catch {
+          setError(`请求失败 (HTTP ${res.status})`);
+        }
+        return;
+      }
 
       const data = await res.json();
 

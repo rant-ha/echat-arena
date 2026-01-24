@@ -70,6 +70,26 @@ export default function NewModelPage() {
         body: JSON.stringify(formData),
       });
 
+      // 先检查 HTTP 状态码
+      if (!res.ok) {
+        try {
+          const data = await res.json();
+          // 处理 FastAPI HTTPException 格式 {"detail": "..."} 和标准格式 {"ok": false, "error": "..."}
+          const errorMsg = data.detail || data.error || `请求失败 (${res.status})`;
+
+          // 特殊处理 401 - 提示重新登录
+          if (res.status === 401) {
+            setError("登录已过期，请重新登录");
+            return;
+          }
+
+          setError(errorMsg);
+        } catch {
+          setError(`请求失败 (HTTP ${res.status})`);
+        }
+        return;
+      }
+
       const data = await res.json();
 
       if (data.ok) {

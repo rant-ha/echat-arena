@@ -3796,7 +3796,7 @@ async def list_sessions(
     }
     """
     # Check admin token
-    _require_admin_token(admin_token)
+    await _require_admin_token(admin_token)
 
     # Use the SessionStore's list_sessions method
     result = await _SESSION_STORE.list_sessions(
@@ -3831,7 +3831,7 @@ async def soft_delete_session(
     }
     """
     # Check admin token
-    _require_admin_token(admin_token)
+    await _require_admin_token(admin_token)
 
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
@@ -3871,7 +3871,7 @@ async def restore_session_endpoint(
     }
     """
     # Check admin token
-    _require_admin_token(admin_token)
+    await _require_admin_token(admin_token)
 
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
@@ -3912,7 +3912,7 @@ async def cleanup_deleted_sessions_endpoint(
     }
     """
     # Check admin token
-    _require_admin_token(admin_token)
+    await _require_admin_token(admin_token)
 
     # Perform cleanup
     deleted_count = await _SESSION_STORE.cleanup_deleted_sessions(max_age_days)
@@ -4366,7 +4366,10 @@ async def get_post_vote_chat_history(session_id: str) -> JSONResponse:
 
 
 @app.post(f"{API_PREFIX}/admin/archive")
-async def admin_archive() -> JSONResponse:
+async def admin_archive(admin_token: str = Header(None, alias="admin-token")) -> JSONResponse:
+    """Archive endpoint - requires admin authentication."""
+    await _require_admin_token(admin_token)
+
     if not ARCHIVE_ENABLED:
         return _error("ARCHIVE_ENABLED is not set", status=400)
     try:
@@ -4384,26 +4387,152 @@ async def admin_archive() -> JSONResponse:
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 ADMIN_JWT_SECRET = os.environ.get("ADMIN_JWT_SECRET", os.urandom(32).hex())
 
-# Simple token storage (in production, use Redis or database)
-_ADMIN_TOKENS: Dict[str, datetime] = {}
+# Token storage - uses database when available, falls back to in-memory
+_ADMIN_TOKENS: Dict[str, datetime] = {}  # Fallback for when Supabase is not configured
 TOKEN_EXPIRY_HOURS = 24
 
-def _generate_admin_token() -> str:
-    """Generate a secure admin token."""
-    token = secrets.token_urlsafe(32)
-    _ADMIN_TOKENS[token] = datetime.utcnow() + timedelta(hours=TOKEN_EXPIRY_HOURS)
-    return token
 
-def _verify_admin_token(token: str) -> bool:
+async def _generate_admin_token(ip_address: str = None, user_agent: str = None) -> tuple:
+    """Generate a secure admin token and store in database (or memory as fallback)."""
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.utcnow() + timedelta(hours=TOKEN_EXPIRY_HOURS)
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        # Fallback to in-memory if Supabase not configured
+        _ADMIN_TOKENS[token] = expires_at
+        return token, expires_at
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{SUPABASE_URL}/rest/v1/admin_sessions",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "token": token,
+                    "expires_at": expires_at.isoformat() + "Z",
+                    "ip_address": ip_address,
+                    "user_agent": user_agent,
+                },
+                timeout=10.0
+            )
+            if resp.status_code not in (200, 201):
+                # Fallback to in-memory on database error
+                _ADMIN_TOKENS[token] = expires_at
+    except Exception:
+        # Fallback to in-memory on any error
+        _ADMIN_TOKENS[token] = expires_at
+
+    return token, expires_at
+
+
+async def _verify_admin_token(token: str) -> bool:
     """Verify if admin token is valid and not expired."""
-    if not token or token not in _ADMIN_TOKENS:
+    if not token:
         return False
-    expiry = _ADMIN_TOKENS.get(token)
-    if expiry is None or datetime.utcnow() > expiry:
-        # Clean up expired token
-        _ADMIN_TOKENS.pop(token, None)
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        # Fallback to in-memory
+        if token not in _ADMIN_TOKENS:
+            return False
+        expiry = _ADMIN_TOKENS.get(token)
+        if expiry is None or datetime.utcnow() > expiry:
+            _ADMIN_TOKENS.pop(token, None)
+            return False
+        return True
+
+    try:
+        async with httpx.AsyncClient() as client:
+            now_iso = datetime.utcnow().isoformat() + "Z"
+            resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/admin_sessions",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                },
+                params={
+                    "token": f"eq.{token}",
+                    "expires_at": f"gt.{now_iso}",
+                    "select": "id,expires_at",
+                },
+                timeout=10.0
+            )
+
+            if resp.status_code != 200:
+                # Fallback: check in-memory
+                return token in _ADMIN_TOKENS and _ADMIN_TOKENS.get(token, datetime.min) > datetime.utcnow()
+
+            data = resp.json()
+            return len(data) > 0
+    except Exception:
+        # Fallback: check in-memory
+        return token in _ADMIN_TOKENS and _ADMIN_TOKENS.get(token, datetime.min) > datetime.utcnow()
+
+
+async def _delete_admin_token(token: str) -> bool:
+    """Delete admin token from database (or memory as fallback)."""
+    if not token:
         return False
-    return True
+
+    # Always remove from in-memory cache
+    _ADMIN_TOKENS.pop(token, None)
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return True
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.delete(
+                f"{SUPABASE_URL}/rest/v1/admin_sessions",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                },
+                params={"token": f"eq.{token}"},
+                timeout=10.0
+            )
+            return resp.status_code in (200, 204)
+    except Exception:
+        return True  # Already removed from memory
+
+
+async def _get_admin_token_expiry(token: str) -> datetime:
+    """Get token expiry time from database or memory."""
+    if not token:
+        return None
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return _ADMIN_TOKENS.get(token)
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/admin_sessions",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                },
+                params={
+                    "token": f"eq.{token}",
+                    "select": "expires_at",
+                },
+                timeout=10.0
+            )
+
+            if resp.status_code == 200:
+                data = resp.json()
+                if data:
+                    # Parse ISO timestamp
+                    expires_str = data[0].get("expires_at", "")
+                    if expires_str:
+                        return datetime.fromisoformat(expires_str.replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        pass
+
+    return _ADMIN_TOKENS.get(token)
 
 def _verify_admin_password(password: str) -> bool:
     """Verify admin password using constant-time comparison."""
@@ -4484,9 +4613,11 @@ async def admin_login(request: Request, body: Dict[str, Any] = Body(...)) -> JSO
         )
         return _error("Invalid password", status=401)
 
-    # Generate token
-    token = _generate_admin_token()
-    expires_at = _ADMIN_TOKENS[token]
+    # Get user agent for session tracking
+    user_agent = request.headers.get("user-agent", "")[:500]  # Limit length
+
+    # Generate token (now async and stores in database)
+    token, expires_at = await _generate_admin_token(ip_address=client_ip, user_agent=user_agent)
 
     # Log successful login
     print(f"[ADMIN] Login successful from {client_ip}", file=sys.stderr)
@@ -4517,10 +4648,10 @@ async def admin_verify(admin_token: str = Header(None, alias="admin-token")) -> 
     if not admin_token:
         return _error("admin-token header is required", status=401)
 
-    if not _verify_admin_token(admin_token):
+    if not await _verify_admin_token(admin_token):
         return _error("Invalid or expired token", status=401)
 
-    expires_at = _ADMIN_TOKENS.get(admin_token)
+    expires_at = await _get_admin_token_expiry(admin_token)
 
     return _response({
         "valid": True,
@@ -4544,8 +4675,8 @@ async def admin_logout(admin_token: str = Header(None, alias="admin-token")) -> 
         }
     }
     """
-    if admin_token and admin_token in _ADMIN_TOKENS:
-        del _ADMIN_TOKENS[admin_token]
+    if admin_token:
+        await _delete_admin_token(admin_token)
 
     return _response({
         "logged_out": True
@@ -4556,9 +4687,9 @@ async def admin_logout(admin_token: str = Header(None, alias="admin-token")) -> 
 # Model Configuration CRUD API Endpoints
 # ============================================================================
 
-def _require_admin_token(admin_token: str) -> bool:
+async def _require_admin_token(admin_token: str) -> bool:
     """Verify admin token and return True if valid, raise HTTPException if not."""
-    if not admin_token or not _verify_admin_token(admin_token):
+    if not admin_token or not await _verify_admin_token(admin_token):
         raise HTTPException(status_code=401, detail="Invalid or expired admin token")
     return True
 
@@ -4583,7 +4714,7 @@ async def list_models(
     Headers:
     - admin-token: Admin authentication token
     """
-    _require_admin_token(admin_token)
+    await _require_admin_token(admin_token)
 
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return _error("Supabase not configured", status=500)
@@ -4707,7 +4838,7 @@ async def create_model(
         "description": "Optional description"
     }
     """
-    _require_admin_token(admin_token)
+    await _require_admin_token(admin_token)
 
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return _error("Supabase not configured", status=500)
@@ -4791,7 +4922,7 @@ async def update_model(
         "description": "..."
     }
     """
-    _require_admin_token(admin_token)
+    await _require_admin_token(admin_token)
 
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return _error("Supabase not configured", status=500)
@@ -4867,7 +4998,7 @@ async def delete_model(
     Path params:
     - model_id: UUID of the model
     """
-    _require_admin_token(admin_token)
+    await _require_admin_token(admin_token)
 
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return _error("Supabase not configured", status=500)
@@ -4915,7 +5046,7 @@ async def get_model(
     Path params:
     - model_id: UUID of the model
     """
-    _require_admin_token(admin_token)
+    await _require_admin_token(admin_token)
 
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return _error("Supabase not configured", status=500)
@@ -4974,7 +5105,7 @@ async def list_users(
     Headers:
     - admin-token: Admin authentication token
     """
-    _require_admin_token(admin_token)
+    await _require_admin_token(admin_token)
 
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return _error("Supabase not configured", status=500)
@@ -5072,7 +5203,7 @@ async def disable_user(
     Path params:
     - user_id: UUID of the user
     """
-    _require_admin_token(admin_token)
+    await _require_admin_token(admin_token)
 
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return _error("Supabase not configured", status=500)
@@ -5117,7 +5248,7 @@ async def enable_user(
     Path params:
     - user_id: UUID of the user
     """
-    _require_admin_token(admin_token)
+    await _require_admin_token(admin_token)
 
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return _error("Supabase not configured", status=500)
@@ -5167,7 +5298,7 @@ async def get_user_votes(
     - page: Page number (default 1)
     - page_size: Items per page (default 20)
     """
-    _require_admin_token(admin_token)
+    await _require_admin_token(admin_token)
 
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return _error("Supabase not configured", status=500)
@@ -5237,7 +5368,7 @@ async def get_statistics(
     Headers:
     - admin-token: Admin authentication token
     """
-    _require_admin_token(admin_token)
+    await _require_admin_token(admin_token)
 
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return _error("Supabase not configured", status=500)
