@@ -121,16 +121,46 @@ export function AIResponseCard({
 
   // Render AI response content
   const renderContent = () => {
+    // Thinking state: streaming but no content yet
+    if (isStreaming && !hasContent && postVoteTurns.length === 0 && !postVoteCurrentReply) {
+      return (
+        <div className="flex flex-col gap-3 p-4">
+          {/* Thinking indicator */}
+          <div className="flex items-center gap-2 mb-2">
+            <div className="flex gap-1">
+              <span className="h-2 w-2 rounded-full bg-interactive-accent animate-bounce [animation-delay:-0.3s]" />
+              <span className="h-2 w-2 rounded-full bg-interactive-accent animate-bounce [animation-delay:-0.15s]" />
+              <span className="h-2 w-2 rounded-full bg-interactive-accent animate-bounce" />
+            </div>
+            <span className="text-sm text-text-muted">思考中...</span>
+          </div>
+          {/* Shimmer skeleton lines */}
+          <div className="space-y-3">
+            <div className="h-4 w-full rounded bg-surface-elevated overflow-hidden">
+              <div className="h-full w-full animate-shimmer bg-gradient-to-r from-surface-elevated via-surface-tertiary to-surface-elevated bg-[length:200%_100%]" />
+            </div>
+            <div className="h-4 w-4/5 rounded bg-surface-elevated overflow-hidden">
+              <div className="h-full w-full animate-shimmer bg-gradient-to-r from-surface-elevated via-surface-tertiary to-surface-elevated bg-[length:200%_100%]" />
+            </div>
+            <div className="h-4 w-3/5 rounded bg-surface-elevated overflow-hidden">
+              <div className="h-full w-full animate-shimmer bg-gradient-to-r from-surface-elevated via-surface-tertiary to-surface-elevated bg-[length:200%_100%]" />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Idle state: waiting for user to start
     if (!hasContent && postVoteTurns.length === 0 && !postVoteCurrentReply) {
       return (
         <div className="flex h-full items-center justify-center">
-          <p className="text-sm text-text-muted">Waiting for response...</p>
+          <p className="text-sm text-text-muted">等待回复...</p>
         </div>
       );
     }
 
     return (
-      <div className="flex flex-col gap-0 overflow-y-auto px-1 scrollbar-thin h-full touch-pan-y overscroll-contain">
+      <div className="flex flex-col gap-0 px-1 h-full">
         {/* AI Response */}
         {hasContent && (
           <div className="flex justify-start w-full">
@@ -209,7 +239,10 @@ export function AIResponseCard({
           </div>
 
           {/* Content Area */}
-          <div className="flex-1 overflow-y-auto touch-pan-y overscroll-contain p-4 relative bg-surface-tertiary">
+          <div
+            className="flex-1 overflow-y-auto touch-pan-y overscroll-contain p-4 relative bg-surface-tertiary"
+            style={{ transform: 'translateZ(0)', WebkitOverflowScrolling: 'touch' }}
+          >
             {renderContent()}
           </div>
         </div>
@@ -262,7 +295,10 @@ export function AIResponseCard({
           </div>
 
           {/* Content Area */}
-          <div className="flex-1 overflow-y-auto touch-pan-y overscroll-contain p-4 bg-surface-tertiary">
+          <div
+            className="flex-1 overflow-y-auto touch-pan-y overscroll-contain p-4 bg-surface-tertiary"
+            style={{ transform: 'translateZ(0)', WebkitOverflowScrolling: 'touch' }}
+          >
             {renderContent()}
           </div>
         </div>

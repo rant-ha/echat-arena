@@ -10,6 +10,12 @@ import { ConversationTurnBlock } from "@/components/ConversationTurnBlock";
 
 type VoteChoice = "model_a" | "model_b" | "tie" | "both_bad" | string;
 
+type ModelConfig = {
+  left?: { arm?: string; model_id?: string };
+  right?: { arm?: string; model_id?: string };
+  [key: string]: unknown;
+};
+
 type ConversationHistoryTurn = {
   turn: number;
   user: string;
@@ -26,6 +32,7 @@ type VoteRow = {
   reply_a: string;
   reply_b: string;
   user_vote: VoteChoice | null;
+  model_config?: ModelConfig | null;
   conversation_history?: ConversationHistoryTurn[];
   turn_count?: number;
 };
@@ -43,6 +50,24 @@ function formatTime(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString();
+}
+
+/**
+ * Convert arm-based vote (model_a=baseline, model_b=strategy) to position (left/right).
+ * model_config.left.arm tells us which arm is on the left side.
+ */
+function getVotePosition(vote: VoteChoice | null, modelConfig?: ModelConfig | null): "left" | "right" | null {
+  if (!vote || vote === "tie" || vote === "both_bad") return null;
+
+  const leftArm = modelConfig?.left?.arm || "baseline";
+  const isLeftBaseline = leftArm === "baseline";
+
+  if (vote === "model_a") {  // voted for baseline
+    return isLeftBaseline ? "left" : "right";
+  } else if (vote === "model_b") {  // voted for strategy
+    return isLeftBaseline ? "right" : "left";
+  }
+  return null;
 }
 
 export default function ChatDetailPage() {
@@ -89,10 +114,10 @@ export default function ChatDetailPage() {
         if (authErr) throw authErr;
         if (!user) throw new Error("未登录");
 
-        // 查询包含多轮对话历史
+        // 查询包含多轮对话历史和 model_config
         const { data, error: dbErr } = await supabase
           .from("votes")
-          .select("id, created_at, session_id, prompt, reply_a, reply_b, user_vote, conversation_history, turn_count")
+          .select("id, created_at, session_id, prompt, reply_a, reply_b, user_vote, model_config, conversation_history, turn_count")
           .eq("id", id)
           .single();
 
@@ -210,36 +235,38 @@ export default function ChatDetailPage() {
             ) : vote ? (
               <div className="space-y-6">
                 {/* 渲染所有对话轮次 */}
-                {(vote.conversation_history && vote.conversation_history.length > 0
-                  ? vote.conversation_history
-                  : [{ turn: 1, user: vote.prompt, reply_a: vote.reply_a, reply_b: vote.reply_b }]
-                ).map((turn, idx, arr) => (
-                  <ConversationTurnBlock
-                    key={turn.turn}
-                    turnIndex={turn.turn}
-                    userMessage={turn.user}
-                    leftContent={turn.reply_a}
-                    rightContent={turn.reply_b}
-                    leftAnonymousLabel="Model A"
-                    rightAnonymousLabel="Model B"
-                    leftIsStreaming={false}
-                    rightIsStreaming={false}
-                    isRevealed={true}
-                    leftIsWinner={vote.user_vote === "model_a"}
-                    rightIsWinner={vote.user_vote === "model_b"}
-                    winnerSide={
-                      vote.user_vote === "model_a" ? "left" :
-                      vote.user_vote === "model_b" ? "right" : null
-                    }
-                    isLastTurn={idx === arr.length - 1}
-                    postVoteTurns={idx === arr.length - 1 ? postTurns.map(t => ({
+                {(() => {
+                  // Calculate winner position using model_config
+                  const winnerPosition = getVotePosition(vote.user_vote, vote.model_config);
+
+                  return (vote.conversation_history && vote.conversation_history.length > 0
+                    ? vote.conversation_history
+                    : [{ turn: 1, user: vote.prompt, reply_a: vote.reply_a, reply_b: vote.reply_b }]
+                  ).map((turn, idx, arr) => (
+                    <ConversationTurnBlock
+                      key={turn.turn}
+                      turnIndex={turn.turn}
+                      userMessage={turn.user}
+                      leftContent={turn.reply_a}
+                      rightContent={turn.reply_b}
+                      leftAnonymousLabel="Model A"
+                      rightAnonymousLabel="Model B"
+                      leftIsStreaming={false}
+                      rightIsStreaming={false}
+                      isRevealed={true}
+                      leftIsWinner={winnerPosition === "left"}
+                      rightIsWinner={winnerPosition === "right"}
+                      winnerSide={winnerPosition}
+                      isLastTurn={idx === arr.length - 1}
+                      postVoteTurns={idx === arr.length - 1 ? postTurns.map(t => ({
                       turn_index: t.turn_index,
                       user_message: t.user_message,
                       assistant_message: t.assistant_message,
                       created_at: t.created_at,
                     })) : undefined}
-                  />
-                ))}
+                    />
+                  ));
+                })()}
               </div>
             ) : (
               <div className="rounded-xl border border-[var(--border-color)] p-5">

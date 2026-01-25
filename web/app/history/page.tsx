@@ -9,11 +9,18 @@ import { Sidebar } from "@/components/Sidebar";
 
 type VoteChoice = "model_a" | "model_b" | "tie" | "both_bad" | string;
 
+type ModelConfig = {
+  left?: { arm?: string; model_id?: string };
+  right?: { arm?: string; model_id?: string };
+  [key: string]: unknown;
+};
+
 type VoteRow = {
   id: string;
   created_at: string;
   prompt: string;
   user_vote: VoteChoice | null;
+  model_config?: ModelConfig | null;
 };
 
 function truncate(text: string, maxLen: number) {
@@ -28,12 +35,33 @@ function formatTime(iso: string) {
   return d.toLocaleString();
 }
 
-function voteLabel(v: VoteChoice | null): string {
+/**
+ * Convert arm-based vote (model_a=baseline, model_b=strategy) to position (left/right).
+ * model_config.left.arm tells us which arm is on the left side.
+ */
+function getVotePosition(vote: VoteChoice | null, modelConfig?: ModelConfig | null): "left" | "right" | null {
+  if (!vote || vote === "tie" || vote === "both_bad") return null;
+
+  const leftArm = modelConfig?.left?.arm || "baseline";
+  const isLeftBaseline = leftArm === "baseline";
+
+  if (vote === "model_a") {  // voted for baseline
+    return isLeftBaseline ? "left" : "right";
+  } else if (vote === "model_b") {  // voted for strategy
+    return isLeftBaseline ? "right" : "left";
+  }
+  return null;
+}
+
+function voteLabel(v: VoteChoice | null, modelConfig?: ModelConfig | null): string {
   if (!v) return "未投票";
-  if (v === "model_a") return "选了 Reply A";
-  if (v === "model_b") return "选了 Reply B";
   if (v === "tie") return "平局";
   if (v === "both_bad") return "都不行";
+
+  const position = getVotePosition(v, modelConfig);
+  if (position === "left") return "选了 Model A";
+  if (position === "right") return "选了 Model B";
+
   return String(v);
 }
 
@@ -75,10 +103,10 @@ export default function HistoryPage() {
         if (authErr) throw authErr;
         if (!user) throw new Error("未登录");
 
-        // 只查询必要字段，不查询 ai_scores 和 model_config
+        // 查询必要字段，包含 model_config 用于正确显示投票位置
         const { data, error: dbErr } = await supabase
           .from("votes")
-          .select("id, created_at, prompt, user_vote")
+          .select("id, created_at, prompt, user_vote, model_config")
           .order("created_at", { ascending: false })
           .limit(100);
 
@@ -204,7 +232,7 @@ export default function HistoryPage() {
                       <div className="mt-1 flex items-center gap-2 text-xs text-[var(--text-muted)]">
                         <span>{formatTime(r.created_at)}</span>
                         <span>•</span>
-                        <span>{voteLabel(r.user_vote)}</span>
+                        <span>{voteLabel(r.user_vote, r.model_config)}</span>
                       </div>
                     </div>
                     <ChevronRight className="h-5 w-5 shrink-0 text-[var(--text-muted)]" />
