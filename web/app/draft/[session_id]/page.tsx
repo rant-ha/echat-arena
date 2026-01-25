@@ -10,8 +10,6 @@ import { ConversationTurnBlock } from "@/components/ConversationTurnBlock";
 import { PromptInput } from "@/components/PromptInput";
 import ReactMarkdown from "react-markdown";
 
-type VoteChoice = "model_a" | "model_b" | "tie" | "both_bad" | string;
-
 type ModelConfig = {
   left?: { arm?: string; model_id?: string };
   right?: { arm?: string; model_id?: string };
@@ -26,26 +24,19 @@ type ConversationHistoryTurn = {
   timestamp?: string;
 };
 
-type VoteRow = {
+type DraftRow = {
   id: string;
-  created_at: string;
   session_id: string;
+  created_at: string;
+  updated_at: string;
   prompt: string;
   reply_a: string;
   reply_b: string;
-  user_vote: VoteChoice | null;
+  model_a: string;
+  model_b: string;
   model_config?: ModelConfig | null;
   conversation_history?: ConversationHistoryTurn[];
   turn_count?: number;
-};
-
-type PostVoteTurn = {
-  id: string;
-  turn_index: number;
-  user_message: string;
-  assistant_message: string;
-  winner_side: string;
-  created_at: string;
 };
 
 function formatTime(iso: string) {
@@ -54,100 +45,64 @@ function formatTime(iso: string) {
   return d.toLocaleString();
 }
 
-/**
- * Convert arm-based vote (model_a=baseline, model_b=strategy) to position (left/right).
- * model_config.left.arm tells us which arm is on the left side.
- */
-function getVotePosition(vote: VoteChoice | null, modelConfig?: ModelConfig | null): "left" | "right" | null {
-  if (!vote || vote === "tie" || vote === "both_bad") return null;
-
-  const leftArm = modelConfig?.left?.arm || "baseline";
-  const isLeftBaseline = leftArm === "baseline";
-
-  if (vote === "model_a") {  // voted for baseline
-    return isLeftBaseline ? "left" : "right";
-  } else if (vote === "model_b") {  // voted for strategy
-    return isLeftBaseline ? "right" : "left";
-  }
-  return null;
-}
-
-export default function ChatDetailPage() {
+export default function DraftDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const id = params?.id as string;
+  const session_id = params?.session_id as string;
 
-  const [vote, setVote] = useState<VoteRow | null>(null);
-  const [postTurns, setPostTurns] = useState<PostVoteTurn[]>([]);
+  const [draft, setDraft] = useState<DraftRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  const [isVoted, setIsVoted] = useState(false);
+  const [winnerSide, setWinnerSide] = useState<"left" | "right" | null>(null);
+  const [voteId, setVoteId] = useState<string | null>(null);
+  const [isVoting, setIsVoting] = useState(false);
 
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentReply, setCurrentReply] = useState("");
-  const [newTurns, setNewTurns] = useState<{turn_index: number; user_message: string; assistant_message: string; created_at: string}[]>([]);
+  const [newTurns, setNewTurns] = useState<{
+    turn_index: number;
+    user_message: string;
+    assistant_message: string;
+    created_at: string;
+  }[]>([]);
 
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
 
-  // 只有选择了 winner（model_a 或 model_b）才能继续对话
-  const canContinue = vote?.user_vote === "model_a" || vote?.user_vote === "model_b";
-  const winnerPosition = vote ? getVotePosition(vote.user_vote, vote.model_config) : null;
-
+  // Fetch user info
   useEffect(() => {
-    // Fetch user info for sidebar
     const supabase = createSupabaseBrowserClient();
     supabase.auth.getUser().then(({ data }) => {
       if (data.user?.email) setUserEmail(data.user.email);
+      if (data.user?.id) setUserId(data.user.id);
     });
   }, []);
 
+  // Fetch draft
   useEffect(() => {
-    if (!id) return;
+    if (!session_id) return;
 
     let cancelled = false;
 
-    async function fetchVote() {
+    async function fetchDraft() {
       setLoading(true);
       setError(null);
 
       try {
-        const supabase = createSupabaseBrowserClient();
-
-        const {
-          data: { user },
-          error: authErr,
-        } = await supabase.auth.getUser();
-
-        if (authErr) throw authErr;
-        if (!user) throw new Error("未登录");
-
-        // 查询包含多轮对话历史和 model_config
-        const { data, error: dbErr } = await supabase
-          .from("votes")
-          .select("id, created_at, session_id, prompt, reply_a, reply_b, user_vote, model_config, conversation_history, turn_count")
-          .eq("id", id)
-          .single();
-
-        if (dbErr) throw dbErr;
-        if (!data) throw new Error("记录不存在");
+        const res = await fetch(`/api/proxy/api/arena/draft/${session_id}`);
+        const data = await res.json();
 
         if (!cancelled) {
-          setVote(data as VoteRow);
-
-          // Fetch post-vote turns
-          const { data: turnsData, error: turnsErr } = await supabase
-            .from("post_vote_turns")
-            .select("*")
-            .eq("vote_id", id)
-            .order("turn_index", { ascending: true });
-
-          if (turnsErr) {
-            console.error("Error fetching post turns:", turnsErr);
-          } else if (turnsData) {
-            setPostTurns(turnsData as PostVoteTurn[]);
+          if (data.ok && data.draft) {
+            setDraft(data.draft);
+          } else {
+            setError(data.error || "草稿不存在或已被删除");
           }
         }
       } catch (err: unknown) {
@@ -158,14 +113,82 @@ export default function ChatDetailPage() {
       }
     }
 
-    fetchVote();
+    fetchDraft();
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [session_id]);
 
+  // Vote handler
+  const handleVote = useCallback(async (choice: "left" | "right" | "tie" | "both_bad") => {
+    if (!draft || !userId || isVoting) return;
+
+    setIsVoting(true);
+
+    try {
+      // Convert position-based choice to arm-based vote
+      let voteChoice: string;
+      if (choice === "tie") {
+        voteChoice = "tie";
+      } else if (choice === "both_bad") {
+        voteChoice = "both_bad";
+      } else {
+        // Determine which arm is on which side
+        const leftArm = draft.model_config?.left?.arm || "baseline";
+        const isLeftBaseline = leftArm === "baseline";
+
+        if (choice === "left") {
+          voteChoice = isLeftBaseline ? "model_a" : "model_b";
+        } else {
+          voteChoice = isLeftBaseline ? "model_b" : "model_a";
+        }
+      }
+
+      // Use the dedicated draft vote endpoint (handles expired sessions)
+      const res = await fetch(`/api/proxy/api/arena/draft/${draft.session_id}/vote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vote: voteChoice,
+          user_id: userId,
+          user_email: userEmail,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.ok) {
+        setIsVoted(true);
+        setVoteId(data.vote_id);
+
+        // Use winner_side from backend response
+        if (data.winner_side === "left" || data.winner_side === "right") {
+          setWinnerSide(data.winner_side);
+        }
+
+        // Redirect to chat page after a short delay
+        if (data.vote_id && data.winner_side) {
+          // Stay on page to allow continue chat
+        } else {
+          // For tie/both_bad, redirect to history
+          setTimeout(() => {
+            router.push("/history");
+          }, 1500);
+        }
+      } else {
+        setError(data.error || "投票失败");
+      }
+    } catch (err) {
+      console.error("Vote error:", err);
+      setError("投票失败，请重试");
+    } finally {
+      setIsVoting(false);
+    }
+  }, [draft, userId, userEmail, isVoting, router]);
+
+  // Continue chat handler
   const handleContinueChat = useCallback(async (message: string) => {
-    if (!vote?.session_id || isStreaming || !canContinue) return;
+    if (!draft?.session_id || isStreaming || !winnerSide) return;
 
     setIsStreaming(true);
     setCurrentReply("");
@@ -175,7 +198,7 @@ export default function ChatDetailPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          session_id: vote.session_id,
+          session_id: draft.session_id,
           user_message: message,
         }),
       });
@@ -208,7 +231,7 @@ export default function ChatDetailPage() {
             }
             if (json.type === "finish" || json.finish) {
               setNewTurns(prev => [...prev, {
-                turn_index: postTurns.length + prev.length + 1,
+                turn_index: prev.length + 1,
                 user_message: message,
                 assistant_message: fullReply,
                 created_at: new Date().toISOString(),
@@ -223,7 +246,7 @@ export default function ChatDetailPage() {
     } finally {
       setIsStreaming(false);
     }
-  }, [vote?.session_id, isStreaming, canContinue, postTurns.length]);
+  }, [draft?.session_id, isStreaming, winnerSide]);
 
   return (
     <div className="flex min-h-screen bg-[var(--main-bg)] text-[var(--text-primary)]">
@@ -282,17 +305,19 @@ export default function ChatDetailPage() {
             </button>
 
             <div>
-              <h1 className="text-sm font-semibold text-[var(--text-primary)]">Chat</h1>
-              {vote && (
+              <h1 className="text-sm font-semibold text-[var(--text-primary)]">
+                {isVoted ? "投票完成" : "草稿详情"}
+              </h1>
+              {draft && (
                 <p className="text-xs text-[var(--text-muted)]">
-                  {formatTime(vote.created_at)}
+                  {formatTime(draft.updated_at)}
                 </p>
               )}
             </div>
           </div>
         </header>
 
-        {/* Chat Content */}
+        {/* Content */}
         <main className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
             {loading ? (
@@ -303,13 +328,13 @@ export default function ChatDetailPage() {
               <div className="rounded-xl border border-red-400/30 bg-red-500/10 p-5">
                 <p className="text-sm text-red-300">{error}</p>
               </div>
-            ) : vote ? (
+            ) : draft ? (
               <div className="space-y-6">
-                {/* 渲染所有对话轮次 */}
+                {/* Render conversation turns */}
                 {(() => {
-                  return (vote.conversation_history && vote.conversation_history.length > 0
-                    ? vote.conversation_history
-                    : [{ turn: 1, user: vote.prompt, reply_a: vote.reply_a, reply_b: vote.reply_b }]
+                  return (draft.conversation_history && draft.conversation_history.length > 0
+                    ? draft.conversation_history
+                    : [{ turn: 1, user: draft.prompt, reply_a: draft.reply_a, reply_b: draft.reply_b }]
                   ).map((turn, idx, arr) => (
                     <ConversationTurnBlock
                       key={turn.turn}
@@ -321,22 +346,16 @@ export default function ChatDetailPage() {
                       rightAnonymousLabel="Model B"
                       leftIsStreaming={false}
                       rightIsStreaming={false}
-                      isRevealed={true}
-                      leftIsWinner={winnerPosition === "left"}
-                      rightIsWinner={winnerPosition === "right"}
-                      winnerSide={winnerPosition}
+                      isRevealed={isVoted}
+                      leftIsWinner={winnerSide === "left"}
+                      rightIsWinner={winnerSide === "right"}
+                      winnerSide={winnerSide}
                       isLastTurn={idx === arr.length - 1}
-                      postVoteTurns={idx === arr.length - 1 ? postTurns.map(t => ({
-                      turn_index: t.turn_index,
-                      user_message: t.user_message,
-                      assistant_message: t.assistant_message,
-                      created_at: t.created_at,
-                    })) : undefined}
                     />
                   ));
                 })()}
 
-                {/* 新的继续对话 */}
+                {/* Post-vote continue chat turns */}
                 {newTurns.map((turn) => (
                   <div key={turn.turn_index} className="space-y-4">
                     <div className="flex justify-end">
@@ -356,7 +375,7 @@ export default function ChatDetailPage() {
                   </div>
                 ))}
 
-                {/* 流式回复 */}
+                {/* Streaming reply */}
                 {currentReply && (
                   <div className="flex justify-start">
                     <div className="max-w-[85%] rounded-xl text-text-secondary">
@@ -370,20 +389,101 @@ export default function ChatDetailPage() {
               </div>
             ) : (
               <div className="rounded-xl border border-[var(--border-color)] p-5">
-                <p className="text-sm text-[var(--text-muted)]">记录不存在</p>
+                <p className="text-sm text-[var(--text-muted)]">草稿不存在</p>
               </div>
             )}
           </div>
         </main>
 
-        {/* 继续对话输入框 */}
-        {canContinue && (
+        {/* Vote buttons or Continue chat input */}
+        {draft && !loading && !error && (
           <div className="sticky bottom-0 border-t border-border-faint bg-surface-primary/95 backdrop-blur-sm px-4 py-4">
-            <PromptInput
-              onSubmit={handleContinueChat}
-              disabled={isStreaming || loading}
-              placeholder="继续与获胜模型对话..."
-            />
+            {!isVoted ? (
+              /* Vote buttons */
+              <div className="mx-auto max-w-2xl">
+                <p className="mb-3 text-center text-sm text-[var(--text-muted)]">
+                  选择你认为更好的回复
+                </p>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <button
+                    type="button"
+                    onClick={() => handleVote("left")}
+                    disabled={isVoting}
+                    className={cn(
+                      "rounded-xl px-4 py-3 text-sm font-medium transition-all",
+                      "bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400",
+                      "text-white shadow-lg hover:shadow-xl",
+                      "disabled:opacity-50 disabled:cursor-not-allowed"
+                    )}
+                  >
+                    A is better
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleVote("right")}
+                    disabled={isVoting}
+                    className={cn(
+                      "rounded-xl px-4 py-3 text-sm font-medium transition-all",
+                      "bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400",
+                      "text-white shadow-lg hover:shadow-xl",
+                      "disabled:opacity-50 disabled:cursor-not-allowed"
+                    )}
+                  >
+                    B is better
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleVote("tie")}
+                    disabled={isVoting}
+                    className={cn(
+                      "rounded-xl px-4 py-3 text-sm font-medium transition-all",
+                      "bg-zinc-700 hover:bg-zinc-600",
+                      "text-white shadow-lg hover:shadow-xl",
+                      "disabled:opacity-50 disabled:cursor-not-allowed"
+                    )}
+                  >
+                    Tie
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleVote("both_bad")}
+                    disabled={isVoting}
+                    className={cn(
+                      "rounded-xl px-4 py-3 text-sm font-medium transition-all",
+                      "bg-zinc-800 hover:bg-zinc-700 border border-zinc-600",
+                      "text-zinc-300 shadow-lg hover:shadow-xl",
+                      "disabled:opacity-50 disabled:cursor-not-allowed"
+                    )}
+                  >
+                    Both bad
+                  </button>
+                </div>
+                {isVoting && (
+                  <p className="mt-3 text-center text-sm text-[var(--text-muted)]">
+                    正在提交投票...
+                  </p>
+                )}
+              </div>
+            ) : winnerSide ? (
+              /* Continue chat input - only if winner was selected */
+              <div className="mx-auto max-w-3xl">
+                <p className="mb-2 text-center text-xs text-[var(--text-muted)]">
+                  投票成功！你选择了 Model {winnerSide === "left" ? "A" : "B"}，现在可以继续对话
+                </p>
+                <PromptInput
+                  onSubmit={handleContinueChat}
+                  disabled={isStreaming}
+                  placeholder="继续与获胜模型对话..."
+                />
+              </div>
+            ) : (
+              /* Tie or both_bad - no continue chat */
+              <div className="mx-auto max-w-2xl text-center">
+                <p className="text-sm text-[var(--text-muted)]">
+                  投票成功！即将返回历史记录页面...
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>

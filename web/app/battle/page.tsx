@@ -343,6 +343,48 @@ export default function BattlePage() {
     [startBattle, continueConversation, currentTurn, meta?.session_id, voteState.isRevealed, winnerSide, postVoteChatSend, selectedModelKey, defaultModelKey]
   );
 
+  // 保存草稿到数据库
+  const saveDraft = useCallback(async () => {
+    if (!meta?.session_id || !prompt) return;
+
+    try {
+      let user: any = undefined;
+      try {
+        const supabase = createSupabaseBrowserClient();
+        const { data, error: authErr } = await supabase.auth.getSession();
+        if (authErr) {
+          console.warn("supabase.auth.getSession() failed", authErr);
+        }
+        user = data.session?.user;
+      } catch (err) {
+        console.warn("createSupabaseBrowserClient() failed", err);
+      }
+
+      await fetch("/api/proxy/api/arena/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: meta.session_id,
+          user_id: user?.id,
+          user_email: user?.email,
+          prompt,
+          reply_a: leftText,
+          reply_b: rightText,
+          model_a: meta.left_model,
+          model_b: meta.right_model,
+          conversation_history: conversationHistory,
+          turn_count: currentTurn,
+          model_config: {
+            left: { model_id: meta.left_model },
+            right: { model_id: meta.right_model },
+          },
+        }),
+      });
+    } catch (err) {
+      console.warn("Failed to save draft:", err);
+    }
+  }, [meta, prompt, leftText, rightText, conversationHistory, currentTurn]);
+
   // Append to conversation history when a round completes
   useEffect(() => {
     if (status === "done" && prompt && leftText && rightText) {
@@ -364,6 +406,13 @@ export default function BattlePage() {
       }
     }
   }, [status, prompt, leftText, rightText, currentTurn, conversationHistory]);
+
+  // 对话完成后自动保存草稿（投票前）
+  useEffect(() => {
+    if (status === "done" && meta?.session_id && !voteState.isRevealed) {
+      saveDraft();
+    }
+  }, [status, meta?.session_id, voteState.isRevealed, saveDraft]);
 
   useEffect(() => {
     if (bootstrappedFromQuery) return;
@@ -452,8 +501,15 @@ export default function BattlePage() {
           isRevealed: true,
           result: payload ? { ...payload, winner } : null,
         }));
-        
+
         setWinnerSide(winner);
+
+        // 删除草稿（已投票）
+        if (meta?.session_id) {
+          fetch(`/api/proxy/api/arena/draft/${meta.session_id}`, {
+            method: "DELETE",
+          }).catch(() => {});
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         setVoteState((prev) => ({
@@ -668,16 +724,14 @@ export default function BattlePage() {
                     leftRevealed={
                       voteState.isRevealed
                         ? {
-                            label: revealedLeftLabel || "Revealed",
-                            subtitle: revealedLeftLabel === "Strategy" ? strategySubtitle : undefined,
+                            label: revealLeft?.model_id || "Model A",
                           }
                         : undefined
                     }
                     rightRevealed={
                       voteState.isRevealed
                         ? {
-                            label: revealedRightLabel || "Revealed",
-                            subtitle: revealedRightLabel === "Strategy" ? strategySubtitle : undefined,
+                            label: revealRight?.model_id || "Model B",
                           }
                         : undefined
                     }

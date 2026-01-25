@@ -23,6 +23,20 @@ type VoteRow = {
   model_config?: ModelConfig | null;
 };
 
+type DraftRow = {
+  id: string;
+  session_id: string;
+  created_at: string;
+  updated_at: string;
+  prompt: string;
+  reply_a: string;
+  reply_b: string;
+  model_a: string;
+  model_b: string;
+  model_config?: ModelConfig | null;
+  turn_count?: number;
+};
+
 function truncate(text: string, maxLen: number) {
   const t = (text || "").trim();
   if (t.length <= maxLen) return t;
@@ -68,6 +82,7 @@ function voteLabel(v: VoteChoice | null, modelConfig?: ModelConfig | null): stri
 export default function HistoryPage() {
   const router = useRouter();
   const [rows, setRows] = useState<VoteRow[]>([]);
+  const [drafts, setDrafts] = useState<DraftRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -124,6 +139,38 @@ export default function HistoryPage() {
     }
 
     run();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load drafts
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadDrafts() {
+      try {
+        const supabase = createSupabaseBrowserClient();
+
+        const {
+          data: { user },
+          error: authErr,
+        } = await supabase.auth.getUser();
+
+        if (authErr || !user) return;
+
+        const draftRes = await fetch(`/api/proxy/api/arena/drafts?user_id=${user.id}`);
+        const draftData = await draftRes.json();
+
+        if (!cancelled && draftData.ok && draftData.drafts) {
+          setDrafts(draftData.drafts);
+        }
+      } catch (err) {
+        console.warn("Failed to load drafts:", err);
+      }
+    }
+
+    loadDrafts();
     return () => {
       cancelled = true;
     };
@@ -211,34 +258,88 @@ export default function HistoryPage() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-2">
-                {rows.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => handleClick(r.id)}
-                    className={cn(
-                      "flex w-full items-center gap-4 rounded-xl border border-[var(--border-color)] bg-[var(--sidebar-bg)] p-4",
-                      "text-left transition-all hover:border-[var(--text-muted)] hover:bg-white/5"
-                    )}
-                  >
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10">
-                      <MessageSquare className="h-5 w-5 text-[var(--text-muted)]" />
+              <>
+                {/* Drafts Section */}
+                {drafts.length > 0 && (
+                  <div className="mb-8">
+                    <h2 className="mb-3 text-sm font-medium text-[var(--text-muted)]">
+                      未投票的对话
+                    </h2>
+                    <div className="space-y-2">
+                      {drafts.map((draft) => (
+                        <button
+                          key={draft.id}
+                          type="button"
+                          onClick={() => router.push(`/draft/${draft.session_id}`)}
+                          className={cn(
+                            "flex w-full items-center gap-4 rounded-xl border border-[var(--border-color)] bg-[var(--sidebar-bg)] p-4",
+                            "text-left transition-all hover:border-[var(--text-muted)] hover:bg-white/5"
+                          )}
+                        >
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-yellow-500/20">
+                            <MessageSquare className="h-5 w-5 text-yellow-500" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="mb-1 flex items-center gap-2">
+                              <p className="line-clamp-1 text-sm font-medium text-[var(--text-primary)]">
+                                {truncate(draft.prompt, 80)}
+                              </p>
+                              <span className="shrink-0 rounded bg-yellow-500/20 px-2 py-0.5 text-xs font-medium text-yellow-500">
+                                未投票
+                              </span>
+                            </div>
+                            <div className="mt-1 flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                              <span>{formatTime(draft.updated_at)}</span>
+                              <span>•</span>
+                              <span>
+                                {draft.model_a} vs {draft.model_b}
+                              </span>
+                            </div>
+                          </div>
+                          <ChevronRight className="h-5 w-5 shrink-0 text-[var(--text-muted)]" />
+                        </button>
+                      ))}
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="line-clamp-1 text-sm font-medium text-[var(--text-primary)]">
-                        {truncate(r.prompt, 80)}
-                      </p>
-                      <div className="mt-1 flex items-center gap-2 text-xs text-[var(--text-muted)]">
-                        <span>{formatTime(r.created_at)}</span>
-                        <span>•</span>
-                        <span>{voteLabel(r.user_vote, r.model_config)}</span>
-                      </div>
-                    </div>
-                    <ChevronRight className="h-5 w-5 shrink-0 text-[var(--text-muted)]" />
-                  </button>
-                ))}
-              </div>
+                  </div>
+                )}
+
+                {/* Voted History Section */}
+                <div>
+                  {rows.length > 0 && (
+                    <h2 className="mb-3 text-sm font-medium text-[var(--text-muted)]">
+                      投票历史
+                    </h2>
+                  )}
+                  <div className="space-y-2">
+                    {rows.map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => handleClick(r.id)}
+                        className={cn(
+                          "flex w-full items-center gap-4 rounded-xl border border-[var(--border-color)] bg-[var(--sidebar-bg)] p-4",
+                          "text-left transition-all hover:border-[var(--text-muted)] hover:bg-white/5"
+                        )}
+                      >
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10">
+                          <MessageSquare className="h-5 w-5 text-[var(--text-muted)]" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="line-clamp-1 text-sm font-medium text-[var(--text-primary)]">
+                            {truncate(r.prompt, 80)}
+                          </p>
+                          <div className="mt-1 flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                            <span>{formatTime(r.created_at)}</span>
+                            <span>•</span>
+                            <span>{voteLabel(r.user_vote, r.model_config)}</span>
+                          </div>
+                        </div>
+                        <ChevronRight className="h-5 w-5 shrink-0 text-[var(--text-muted)]" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </main>
