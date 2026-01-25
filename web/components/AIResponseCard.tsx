@@ -130,7 +130,7 @@ export function AIResponseCard({
     }
 
     return (
-      <div className="flex flex-col gap-0 overflow-y-auto px-1 scrollbar-thin h-full">
+      <div className="flex flex-col gap-0 overflow-y-auto px-1 scrollbar-thin h-full touch-pan-y overscroll-contain">
         {/* AI Response */}
         {hasContent && (
           <div className="flex justify-start w-full">
@@ -209,7 +209,7 @@ export function AIResponseCard({
           </div>
 
           {/* Content Area */}
-          <div className="flex-1 overflow-hidden p-4 relative bg-surface-tertiary">
+          <div className="flex-1 overflow-y-auto touch-pan-y overscroll-contain p-4 relative bg-surface-tertiary">
             {renderContent()}
           </div>
         </div>
@@ -262,7 +262,7 @@ export function AIResponseCard({
           </div>
 
           {/* Content Area */}
-          <div className="flex-1 overflow-hidden p-4 bg-surface-tertiary">
+          <div className="flex-1 overflow-y-auto touch-pan-y overscroll-contain p-4 bg-surface-tertiary">
             {renderContent()}
           </div>
         </div>

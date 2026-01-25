@@ -47,6 +47,8 @@ export default function RegisterPage() {
   const [captchaToken, setCaptchaToken] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [registrationSuccess, setRegistrationSuccess] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState("");
 
   const captchaEnabled = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
 
@@ -67,21 +69,77 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const supabase = createSupabaseBrowserClient();
-      const { error: authError } = await supabase.auth.signUp({
+      const { data, error: authError } = await supabase.auth.signUp({
         email,
         password,
         options: captchaEnabled ? { captchaToken } : undefined,
       });
       if (authError) throw authError;
 
-      // If email confirmation is enabled, user may need to confirm.
-      router.replace("/battle");
-      router.refresh();
+      // 检查是否需要邮箱验证
+      if (!data.session) {
+        setRegisteredEmail(email);
+        setRegistrationSuccess(true);
+      } else {
+        router.replace("/battle");
+        router.refresh();
+      }
     } catch (err: any) {
       setError(err?.message || "注册失败");
     } finally {
       setLoading(false);
     }
+  }
+
+  if (registrationSuccess) {
+    return (
+      <main className="min-h-screen bg-background px-4 py-16 text-foreground">
+        <div className="mx-auto w-full max-w-md">
+          <Card>
+            {/* 邮件图标 */}
+            <div className="flex justify-center mb-4">
+              <div className="h-16 w-16 rounded-full bg-interactive-accent/20 flex items-center justify-center">
+                <svg className="h-8 w-8 text-interactive-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+              </div>
+            </div>
+
+            <h1 className="text-xl font-semibold text-center">注册成功！</h1>
+            <p className="mt-2 text-sm text-muted text-center">验证邮件已发送至</p>
+            <p className="mt-1 text-sm font-medium text-primary text-center break-all">{registeredEmail}</p>
+
+            {/* 验证步骤 */}
+            <div className="mt-6 p-4 rounded-lg bg-surface-secondary border border-border-faint">
+              <h2 className="text-sm font-medium mb-3">请按以下步骤完成验证：</h2>
+              <ol className="text-sm text-muted space-y-2 list-decimal list-inside">
+                <li>打开您的邮箱</li>
+                <li>找到来自我们的验证邮件</li>
+                <li>点击邮件中的验证链接</li>
+                <li>验证完成后即可登录</li>
+              </ol>
+            </div>
+
+            <p className="mt-4 text-xs text-muted text-center">没有收到邮件？请检查垃圾邮件文件夹</p>
+
+            {/* 操作按钮 */}
+            <div className="mt-6 space-y-3">
+              <Button type="button" className="w-full" onClick={() => router.push("/login")}>
+                前往登录
+              </Button>
+              <Button type="button" variant="ghost" className="w-full" onClick={() => {
+                setRegistrationSuccess(false);
+                setEmail("");
+                setPassword("");
+                setCaptchaToken("");
+              }}>
+                使用其他邮箱注册
+              </Button>
+            </div>
+          </Card>
+        </div>
+      </main>
+    );
   }
 
   return (

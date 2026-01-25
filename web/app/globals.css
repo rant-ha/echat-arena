@@ -53,6 +53,10 @@
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
+
+  .scroll-touch {
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 /* Smooth scrollbar styling for other elements */
