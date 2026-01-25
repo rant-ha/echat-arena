@@ -236,10 +236,17 @@ export function useBattleStream(options?: UseBattleStreamOptions) {
           for (const data of parseSseEventBlock(block)) {
             if (!data) continue;
             if (data === "[DONE]") {
-              setState((prev) => ({
-                ...prev,
-                status: prev.status === "error" ? "error" : "done",
-              }));
+              setState((prev) => {
+                // 只有两边都已完成才设为 done
+                if (prev.leftDone && prev.rightDone) {
+                  return {
+                    ...prev,
+                    status: prev.status === "error" ? "error" : "done",
+                  };
+                }
+                // 否则保持 streaming 状态，等待 finish frame
+                return prev;
+              });
               continue;
             }
             try {
@@ -257,10 +264,22 @@ export function useBattleStream(options?: UseBattleStreamOptions) {
       }
 
       // If stream ends without explicit finish frames, mark done best-effort.
-      setState((prev) => ({
-        ...prev,
-        status: prev.status === "error" ? "error" : "done",
-      }));
+      setState((prev) => {
+        // 如果已经是 done 或 error，保持不变
+        if (prev.status === "done" || prev.status === "error") {
+          return prev;
+        }
+        // 只有两边都完成才设为 done
+        if (prev.leftDone && prev.rightDone) {
+          return { ...prev, status: "done" };
+        }
+        // 否则标记为部分完成
+        return {
+          ...prev,
+          status: "error",
+          error: "部分模型响应失败，请刷新重试"
+        };
+      });
     } catch (err) {
       if (controller.signal.aborted) return;
       
@@ -387,10 +406,17 @@ export function useBattleStream(options?: UseBattleStreamOptions) {
           for (const data of parseSseEventBlock(block)) {
             if (!data) continue;
             if (data === "[DONE]") {
-              setState((prev) => ({
-                ...prev,
-                status: prev.status === "error" ? "error" : "done",
-              }));
+              setState((prev) => {
+                // 只有两边都已完成才设为 done
+                if (prev.leftDone && prev.rightDone) {
+                  return {
+                    ...prev,
+                    status: prev.status === "error" ? "error" : "done",
+                  };
+                }
+                // 否则保持 streaming 状态，等待 finish frame
+                return prev;
+              });
               continue;
             }
             try {
@@ -408,10 +434,22 @@ export function useBattleStream(options?: UseBattleStreamOptions) {
       }
 
       // If stream ends without explicit finish frames, mark done best-effort.
-      setState((prev) => ({
-        ...prev,
-        status: prev.status === "error" ? "error" : "done",
-      }));
+      setState((prev) => {
+        // 如果已经是 done 或 error，保持不变
+        if (prev.status === "done" || prev.status === "error") {
+          return prev;
+        }
+        // 只有两边都完成才设为 done
+        if (prev.leftDone && prev.rightDone) {
+          return { ...prev, status: "done" };
+        }
+        // 否则标记为部分完成
+        return {
+          ...prev,
+          status: "error",
+          error: "部分模型响应失败，请刷新重试"
+        };
+      });
     } catch (err) {
       if (controller.signal.aborted) return;
       

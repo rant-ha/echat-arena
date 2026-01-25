@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import { useState } from "react";
 import { cn } from "./ui";
 import { Copy, Check } from "lucide-react";
+import { ThinkingIndicator } from "./ThinkingIndicator";
 
 export type ResponseCardReveal = {
   label?: string;
@@ -103,13 +104,19 @@ export function AIResponseCard({
           </div>
         ))}
 
-        {postVoteCurrentReply && (
+        {(postVoteCurrentReply || isPostVoteChatting) && (
           <div className="flex justify-start w-full">
             <div className="w-full rounded-xl bg-transparent text-text-primary">
               <div className="prose prose-sm prose-invert max-w-none break-words">
-                <ReactMarkdown>{postVoteCurrentReply}</ReactMarkdown>
-                {isPostVoteChatting && (
-                  <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-interactive-accent align-middle" />
+                {postVoteCurrentReply ? (
+                  <>
+                    <ReactMarkdown>{postVoteCurrentReply}</ReactMarkdown>
+                    {isPostVoteChatting && (
+                      <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-interactive-accent align-middle" />
+                    )}
+                  </>
+                ) : (
+                  <ThinkingIndicator showSkeleton={false} />
                 )}
               </div>
             </div>

@@ -9,6 +9,8 @@ import { Sidebar } from "@/components/Sidebar";
 import { ConversationTurnBlock } from "@/components/ConversationTurnBlock";
 import { PromptInput } from "@/components/PromptInput";
 import ReactMarkdown from "react-markdown";
+import { useBattleStream } from "@/hooks/useBattleStream";
+import { ThinkingIndicator } from "@/components/ThinkingIndicator";
 
 type ModelConfig = {
   left?: { arm?: string; model_id?: string };
@@ -71,6 +73,23 @@ export default function DraftDetailPage() {
     assistant_message: string;
     created_at: string;
   }[]>([]);
+
+  // Pre-vote battle state
+  const [currentTurn, setCurrentTurn] = useState(0);
+  const [newBattleTurns, setNewBattleTurns] = useState<ConversationHistoryTurn[]>([]);
+  const [currentPrompt, setCurrentPrompt] = useState("");
+
+  const {
+    status: battleStatus,
+    leftText,
+    rightText,
+    leftDone,
+    rightDone,
+    error: battleError,
+    continueConversation,
+  } = useBattleStream({
+    onTurnUpdate: (turn) => setCurrentTurn(turn),
+  });
 
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
@@ -248,6 +267,27 @@ export default function DraftDetailPage() {
     }
   }, [draft?.session_id, isStreaming, winnerSide]);
 
+  // Pre-vote continue conversation (dual model battle)
+  const handlePreVoteContinue = useCallback(async (message: string) => {
+    if (!draft?.session_id || battleStatus === "streaming") return;
+    setCurrentPrompt(message);
+    continueConversation(draft.session_id, message);
+  }, [draft?.session_id, battleStatus, continueConversation]);
+
+  // Save new battle turn when complete
+  useEffect(() => {
+    if (battleStatus === "done" && leftText && rightText && currentPrompt) {
+      const newTurn: ConversationHistoryTurn = {
+        turn: (draft?.conversation_history?.length || 1) + newBattleTurns.length + 1,
+        user: currentPrompt,
+        reply_a: leftText,
+        reply_b: rightText,
+      };
+      setNewBattleTurns(prev => [...prev, newTurn]);
+      setCurrentPrompt("");
+    }
+  }, [battleStatus, leftText, rightText, currentPrompt, draft?.conversation_history?.length, newBattleTurns.length]);
+
   return (
     <div className="flex min-h-screen bg-[var(--main-bg)] text-[var(--text-primary)]">
       {/* Desktop sidebar */}
@@ -355,6 +395,42 @@ export default function DraftDetailPage() {
                   ));
                 })()}
 
+                {/* New battle turns (pre-vote) */}
+                {newBattleTurns.map((turn) => (
+                  <ConversationTurnBlock
+                    key={`new-${turn.turn}`}
+                    turnIndex={turn.turn}
+                    userMessage={turn.user}
+                    leftContent={turn.reply_a}
+                    rightContent={turn.reply_b}
+                    leftAnonymousLabel="Model A"
+                    rightAnonymousLabel="Model B"
+                    leftIsStreaming={false}
+                    rightIsStreaming={false}
+                    isRevealed={isVoted}
+                    leftIsWinner={winnerSide === "left"}
+                    rightIsWinner={winnerSide === "right"}
+                    winnerSide={winnerSide}
+                    isLastTurn={false}
+                  />
+                ))}
+
+                {/* Current streaming battle turn (pre-vote) */}
+                {battleStatus === "streaming" && currentPrompt && (
+                  <ConversationTurnBlock
+                    turnIndex={(draft?.conversation_history?.length || 1) + newBattleTurns.length + 1}
+                    userMessage={currentPrompt}
+                    leftContent={leftText}
+                    rightContent={rightText}
+                    leftAnonymousLabel="Model A"
+                    rightAnonymousLabel="Model B"
+                    leftIsStreaming={!leftDone}
+                    rightIsStreaming={!rightDone}
+                    isRevealed={false}
+                    isLastTurn={true}
+                  />
+                )}
+
                 {/* Post-vote continue chat turns */}
                 {newTurns.map((turn) => (
                   <div key={turn.turn_index} className="space-y-4">
@@ -376,12 +452,20 @@ export default function DraftDetailPage() {
                 ))}
 
                 {/* Streaming reply */}
-                {currentReply && (
+                {(currentReply || isStreaming) && (
                   <div className="flex justify-start">
                     <div className="max-w-[85%] rounded-xl text-text-secondary">
                       <div className="prose prose-sm prose-invert max-w-none">
-                        <ReactMarkdown>{currentReply}</ReactMarkdown>
-                        <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-interactive-accent align-middle" />
+                        {currentReply ? (
+                          <>
+                            <ReactMarkdown>{currentReply}</ReactMarkdown>
+                            {isStreaming && (
+                              <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-interactive-accent align-middle" />
+                            )}
+                          </>
+                        ) : (
+                          <ThinkingIndicator showSkeleton={false} />
+                        )}
                       </div>
                     </div>
                   </div>
@@ -399,70 +483,79 @@ export default function DraftDetailPage() {
         {draft && !loading && !error && (
           <div className="sticky bottom-0 border-t border-border-faint bg-surface-primary/95 backdrop-blur-sm px-4 py-4">
             {!isVoted ? (
-              /* Vote buttons */
-              <div className="mx-auto max-w-2xl">
-                <p className="mb-3 text-center text-sm text-[var(--text-muted)]">
-                  选择你认为更好的回复
-                </p>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <button
-                    type="button"
-                    onClick={() => handleVote("left")}
-                    disabled={isVoting}
-                    className={cn(
-                      "rounded-xl px-4 py-3 text-sm font-medium transition-all",
-                      "bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400",
-                      "text-white shadow-lg hover:shadow-xl",
-                      "disabled:opacity-50 disabled:cursor-not-allowed"
-                    )}
-                  >
-                    A is better
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleVote("right")}
-                    disabled={isVoting}
-                    className={cn(
-                      "rounded-xl px-4 py-3 text-sm font-medium transition-all",
-                      "bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400",
-                      "text-white shadow-lg hover:shadow-xl",
-                      "disabled:opacity-50 disabled:cursor-not-allowed"
-                    )}
-                  >
-                    B is better
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleVote("tie")}
-                    disabled={isVoting}
-                    className={cn(
-                      "rounded-xl px-4 py-3 text-sm font-medium transition-all",
-                      "bg-zinc-700 hover:bg-zinc-600",
-                      "text-white shadow-lg hover:shadow-xl",
-                      "disabled:opacity-50 disabled:cursor-not-allowed"
-                    )}
-                  >
-                    Tie
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleVote("both_bad")}
-                    disabled={isVoting}
-                    className={cn(
-                      "rounded-xl px-4 py-3 text-sm font-medium transition-all",
-                      "bg-zinc-800 hover:bg-zinc-700 border border-zinc-600",
-                      "text-zinc-300 shadow-lg hover:shadow-xl",
-                      "disabled:opacity-50 disabled:cursor-not-allowed"
-                    )}
-                  >
-                    Both bad
-                  </button>
-                </div>
-                {isVoting && (
-                  <p className="mt-3 text-center text-sm text-[var(--text-muted)]">
-                    正在提交投票...
+              <div className="mx-auto max-w-3xl space-y-4">
+                {/* Pre-vote continue conversation input */}
+                <PromptInput
+                  onSubmit={handlePreVoteContinue}
+                  disabled={battleStatus === "streaming"}
+                  placeholder="继续对话，或选择下方投票..."
+                />
+
+                {/* Vote buttons */}
+                <div className="border-t border-border-faint pt-4">
+                  <p className="mb-3 text-center text-sm text-text-muted">
+                    选择你认为更好的回复
                   </p>
-                )}
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <button
+                      type="button"
+                      onClick={() => handleVote("left")}
+                      disabled={isVoting || battleStatus === "streaming"}
+                      className={cn(
+                        "rounded-xl px-4 py-3 text-sm font-medium transition-all",
+                        "bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400",
+                        "text-white shadow-lg hover:shadow-xl",
+                        "disabled:opacity-50 disabled:cursor-not-allowed"
+                      )}
+                    >
+                      A is better
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleVote("right")}
+                      disabled={isVoting || battleStatus === "streaming"}
+                      className={cn(
+                        "rounded-xl px-4 py-3 text-sm font-medium transition-all",
+                        "bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400",
+                        "text-white shadow-lg hover:shadow-xl",
+                        "disabled:opacity-50 disabled:cursor-not-allowed"
+                      )}
+                    >
+                      B is better
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleVote("tie")}
+                      disabled={isVoting || battleStatus === "streaming"}
+                      className={cn(
+                        "rounded-xl px-4 py-3 text-sm font-medium transition-all",
+                        "bg-zinc-700 hover:bg-zinc-600",
+                        "text-white shadow-lg hover:shadow-xl",
+                        "disabled:opacity-50 disabled:cursor-not-allowed"
+                      )}
+                    >
+                      Tie
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleVote("both_bad")}
+                      disabled={isVoting || battleStatus === "streaming"}
+                      className={cn(
+                        "rounded-xl px-4 py-3 text-sm font-medium transition-all",
+                        "bg-zinc-800 hover:bg-zinc-700 border border-zinc-600",
+                        "text-zinc-300 shadow-lg hover:shadow-xl",
+                        "disabled:opacity-50 disabled:cursor-not-allowed"
+                      )}
+                    >
+                      Both bad
+                    </button>
+                  </div>
+                  {isVoting && (
+                    <p className="mt-3 text-center text-sm text-text-muted">
+                      正在提交投票...
+                    </p>
+                  )}
+                </div>
               </div>
             ) : winnerSide ? (
               /* Continue chat input - only if winner was selected */
