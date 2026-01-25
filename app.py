@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 import httpx
-from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Request, Header
+from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, Request, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
