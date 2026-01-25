@@ -7,6 +7,44 @@ echat-arena: AI chat arena with multi-turn conversations. Backend: FastAPI (Hero
 ## Working Memory
 <!-- Timestamped session notes. Auto-pruned after 7 days. -->
 
+## 2026-01-25 - Draft Save & Resume Feature + Heroku Fix
+
+**New Feature: 草稿保存和恢复功能**
+
+用户未投票的对话现在会自动保存到数据库，可以在 /history 页面恢复并继续。
+
+**Created Files (2):**
+- `migrations/add_draft_conversations.sql` - 草稿表 with RLS policies
+- `web/app/draft/[session_id]/page.tsx` - 草稿详情页（查看、投票、继续对话）
+
+**Modified Files (4):**
+- `app.py` - 添加 draft API endpoints:
+  - `POST /api/arena/draft` - 保存草稿
+  - `GET /api/arena/drafts` - 获取用户草稿列表
+  - `GET /api/arena/draft/{session_id}` - 获取单个草稿
+  - `POST /api/arena/draft/{session_id}/vote` - 草稿投票（恢复session到内存）
+  - `DELETE /api/arena/draft/{session_id}` - 删除草稿
+- `web/app/battle/page.tsx` - 自动保存草稿，投票后删除
+- `web/app/chat/[id]/page.tsx` - 投票后继续对话功能
+- `web/app/history/page.tsx` - 显示草稿列表，点击进入详情页
+
+**Key Features:**
+- 对话自动保存到数据库（不依赖localStorage）
+- 浏览器关闭后可恢复未投票对话
+- 草稿投票后恢复session到内存，支持继续对话
+- 只有选择胜者(A/B)才能继续对话，Tie/Both Bad 不能继续
+- 投票后隐藏内部配置信息(Strategy/Baseline)
+
+**Bug Fix: Heroku H10 Crash**
+- 原因：`Query` 未从 FastAPI 导入
+- 修复：`app.py` 第18行添加 `Query` 到 import
+
+**Commits:**
+- `e7baf00` - feat: Add draft save and resume functionality
+- `9aecac0` - fix: Add missing Query import to fix Heroku H10 crash
+
+---
+
 ## 2026-01-24 - Model Selector Feature Complete
 
 **New Feature: Battle 页面模型选择器**
