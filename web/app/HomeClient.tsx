@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Menu, X, ChevronDown } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { PromptInput } from "@/components/PromptInput";
+import { ModelSelector } from "@/components/ModelSelector";
 import { cn } from "@/components/ui";
 
 export function HomeClient(props: { userEmail?: string | null }) {
@@ -12,16 +13,50 @@ export function HomeClient(props: { userEmail?: string | null }) {
 
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [selectedModelKey, setSelectedModelKey] = useState<string | null>(null);
+  const MODEL_STORAGE_KEY = "echat-arena-v1-selected-model";
+
+  // Load model selection from localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(MODEL_STORAGE_KEY);
+      if (stored) {
+        setSelectedModelKey(stored);
+      }
+    } catch {
+      // localStorage might be unavailable
+    }
+  }, []);
+
+  // Handle model change
+  const handleModelChange = useCallback((modelKey: string) => {
+    setSelectedModelKey(modelKey);
+    try {
+      localStorage.setItem(MODEL_STORAGE_KEY, modelKey);
+    } catch {
+      // localStorage might be unavailable
+    }
+  }, []);
+
+  // Handle default model loaded from API
+  const handleDefaultModelLoaded = useCallback((defaultKey: string | null) => {
+    if (!selectedModelKey && defaultKey) {
+      setSelectedModelKey(defaultKey);
+    }
+  }, [selectedModelKey]);
 
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
 
   const handleSubmitPrompt = useCallback(
     (prompt: string) => {
-      const q = new URLSearchParams({ prompt });
-      router.push(`/battle?${q.toString()}`);
+      const params = new URLSearchParams({ prompt });
+      if (selectedModelKey) {
+        params.set("model", selectedModelKey);
+      }
+      router.push(`/battle?${params.toString()}`);
     },
-    [router]
+    [router, selectedModelKey]
   );
 
   return (
@@ -68,18 +103,12 @@ export function HomeClient(props: { userEmail?: string | null }) {
               {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
 
-            {/* Model Selector (ChatGPT style dropdown) */}
-            <button
-              type="button"
-              className={cn(
-                "flex items-center gap-1 rounded-lg px-3 py-2",
-                "text-lg font-semibold text-[var(--text-primary)]",
-                "hover:bg-white/10 transition-colors"
-              )}
-            >
-              Model Arena
-              <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
-            </button>
+            {/* Model Selector */}
+            <ModelSelector
+              selectedModelKey={selectedModelKey}
+              onModelChange={handleModelChange}
+              onDefaultLoaded={handleDefaultModelLoaded}
+            />
           </div>
         </header>
 

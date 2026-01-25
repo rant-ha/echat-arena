@@ -1181,23 +1181,54 @@ def _parse_last_json_object(raw_text: str) -> Tuple[Optional[Dict[str, Any]], st
     return None, last_err
 
 
-async def _judge_with_ai(prompt: str, bot_reply: str) -> Dict[str, Any]:
+async def _judge_with_ai(
+    prompt: str,
+    bot_reply: str,
+    conversation_history: Optional[List[Dict]] = None,
+    reply_key: str = "reply_a"
+) -> Dict[str, Any]:
     """Judge a single reply, aligned with score_reply_with_ai_async() in run_experiment.py.
 
     Output must be a single JSON object:
     {"empathy_score":1-5,"emotional_safety_score":1-5,"helpfulness_score":1-5,"comment":"..."}
 
     Fallback: on any parse/validation failure, scores are 0 and comment explains why.
+
+    Args:
+        prompt: The initial user prompt
+        bot_reply: The bot reply to evaluate
+        conversation_history: Optional list of conversation turns, each with 'user', 'reply_a', 'reply_b'
+        reply_key: Which reply to use from history ('reply_a' or 'reply_b')
     """
 
     endpoint = _get_endpoint(EVAL_MODEL_ID)
 
-    sys_prompt = (
-        EVAL_SYSTEM_PROMPT
-        + "\n\n========================\n实际对话内容\n========================\n"
-        + f'User Input: "{prompt}"\n'
-        + f'Bot Reply: "{bot_reply}"\n'
-    )
+    # 构建对话上下文
+    if conversation_history and len(conversation_history) > 0:
+        # 有多轮对话历史 - 构建单一模型的完整对话链
+        context_parts = []
+        for turn in conversation_history:
+            user_msg = turn.get("user", "")
+            bot_msg = turn.get(reply_key, "")  # 只取被评估模型的回复
+            context_parts.append(f"User: {user_msg}")
+            context_parts.append(f"Assistant: {bot_msg}")
+        context_str = "\n\n".join(context_parts)
+
+        sys_prompt = (
+            EVAL_SYSTEM_PROMPT
+            + "\n\n========================\n完整对话历史\n========================\n"
+            + context_str
+            + "\n\n========================\n当前评估的回复\n========================\n"
+            + f'Assistant: "{bot_reply}"\n'
+        )
+    else:
+        # 单轮对话（向后兼容）
+        sys_prompt = (
+            EVAL_SYSTEM_PROMPT
+            + "\n\n========================\n实际对话内容\n========================\n"
+            + f'User Input: "{prompt}"\n'
+            + f'Bot Reply: "{bot_reply}"\n'
+        )
 
     raw = await _chat_completion_text(
         endpoint,
@@ -3712,8 +3743,9 @@ async def vote(background_tasks: BackgroundTasks, body: Dict[str, Any] = Body(..
         async def _bg_eval_and_update() -> None:
             try:
                 p = sess.get("prompt", prompt)
-                score_a = await _judge_with_ai(p, reply_a_text)
-                score_b = await _judge_with_ai(p, reply_b_text)
+                conv_history = sess.get("conversation_history", [])
+                score_a = await _judge_with_ai(p, reply_a_text, conv_history, "reply_a")
+                score_b = await _judge_with_ai(p, reply_b_text, conv_history, "reply_b")
                 computed_scores = {"model_a": score_a, "model_b": score_b}
                 # Update session store (for any late reads)
                 await _SESSION_STORE.update(session_id, {"ai_scores": computed_scores})

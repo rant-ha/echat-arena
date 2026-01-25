@@ -103,8 +103,21 @@ export default function BattlePage() {
   const [defaultModelKey, setDefaultModelKey] = useState<string | null>(null);
   const MODEL_STORAGE_KEY = "echat-arena-v1-selected-model";
 
-  // Load model selection from localStorage
+  // Load model selection from URL or localStorage
   useEffect(() => {
+    // 优先使用 URL 参数
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlModel = urlParams.get("model");
+
+    if (urlModel) {
+      setSelectedModelKey(urlModel);
+      try {
+        localStorage.setItem(MODEL_STORAGE_KEY, urlModel);
+      } catch {}
+      return;
+    }
+
+    // 回退到 localStorage
     try {
       const stored = localStorage.getItem(MODEL_STORAGE_KEY);
       if (stored) {
