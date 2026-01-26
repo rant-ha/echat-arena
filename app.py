@@ -1711,7 +1711,147 @@ class SupabaseSessionStore(SessionStore):
             value["_ts"] = time.time()  # For memory store compatibility
             self._sessions[session_id] = value
             await self._gc_locked()
-    
+
+    async def put_or_update(self, session_id: str, value: Dict[str, Any], max_retries: int = 3) -> bool:
+        """
+        智能写入 session：如果存在则 CAS 更新，否则创建新记录。
+
+        用于草稿恢复场景，避免 409 冲突错误。
+
+        Args:
+            session_id: Session ID
+            value: Session 数据
+            max_retries: 版本冲突时的最大重试次数
+
+        Returns:
+            bool: 写入成功返回 True，失败返回 False
+        """
+        # 确保必要字段存在
+        if "conversation_history" not in value:
+            value["conversation_history"] = []
+        if "turn_count" not in value:
+            value["turn_count"] = 0
+        if "version" not in value:
+            value["version"] = 0
+
+        # 初始化单侧上下文
+        if "left" not in value or "context" not in value.get("left", {}):
+            if "left" not in value:
+                value["left"] = {}
+            value["left"]["context"] = []
+
+        if "right" not in value or "context" not in value.get("right", {}):
+            if "right" not in value:
+                value["right"] = {}
+            value["right"]["context"] = []
+
+        # 如果 Supabase 不可用，直接写入内存
+        if not self._is_supabase_available():
+            print(_json_dumps({
+                "t": _utc_now_iso(),
+                "type": "put_or_update_fallback_to_memory",
+                "session_id": session_id,
+                "reason": "supabase_not_configured"
+            }), file=sys.stderr)
+            async with self._lock:
+                value["_ts"] = time.time()
+                self._sessions[session_id] = value
+                await self._gc_locked()
+            return True
+
+        for attempt in range(max_retries):
+            try:
+                # 1. 检查 session 是否已存在
+                existing = await self.get(session_id)
+
+                if existing:
+                    # 2a. Session 存在 -> CAS 更新
+                    current_version = existing.get("version", 0)
+                    success = await self._supabase_cas_update(
+                        session_id,
+                        current_version,
+                        value,
+                        create_if_not_exists=False
+                    )
+                    if success:
+                        # 同步更新缓存
+                        self._cache_set(session_id, value)
+                        print(_json_dumps({
+                            "t": _utc_now_iso(),
+                            "type": "put_or_update_cas_success",
+                            "session_id": session_id,
+                            "old_version": current_version,
+                            "attempt": attempt + 1
+                        }))
+                        return True
+                    else:
+                        # CAS 失败（版本冲突），重试
+                        print(_json_dumps({
+                            "t": _utc_now_iso(),
+                            "type": "put_or_update_cas_conflict",
+                            "session_id": session_id,
+                            "old_version": current_version,
+                            "attempt": attempt + 1
+                        }), file=sys.stderr)
+                        # 指数退避
+                        await asyncio.sleep(0.1 * (attempt + 1))
+                        continue
+                else:
+                    # 2b. Session 不存在 -> 创建新记录
+                    success = await self._supabase_cas_update(
+                        session_id,
+                        0,
+                        value,
+                        create_if_not_exists=True
+                    )
+                    if success:
+                        self._cache_set(session_id, value)
+                        print(_json_dumps({
+                            "t": _utc_now_iso(),
+                            "type": "put_or_update_create_success",
+                            "session_id": session_id,
+                            "attempt": attempt + 1
+                        }))
+                        return True
+                    else:
+                        # 创建失败（可能被并发创建），重试
+                        print(_json_dumps({
+                            "t": _utc_now_iso(),
+                            "type": "put_or_update_create_conflict",
+                            "session_id": session_id,
+                            "attempt": attempt + 1
+                        }), file=sys.stderr)
+                        await asyncio.sleep(0.1 * (attempt + 1))
+                        continue
+
+            except Exception as exc:
+                print(_json_dumps({
+                    "t": _utc_now_iso(),
+                    "type": "put_or_update_exception",
+                    "session_id": session_id,
+                    "attempt": attempt + 1,
+                    "error": str(exc)
+                }), file=sys.stderr)
+                if attempt == max_retries - 1:
+                    break
+                await asyncio.sleep(0.1 * (attempt + 1))
+                continue
+
+        # 所有重试都失败，回退到内存
+        print(_json_dumps({
+            "t": _utc_now_iso(),
+            "type": "put_or_update_all_retries_failed",
+            "session_id": session_id,
+            "max_retries": max_retries
+        }), file=sys.stderr)
+
+        # 回退到内存存储
+        async with self._lock:
+            value["_ts"] = time.time()
+            self._sessions[session_id] = value
+            await self._gc_locked()
+        return False
+
     async def get(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Get session with Supabase persistence support."""
         # 1. Try local cache first
@@ -3849,7 +3989,7 @@ async def save_draft(body: Dict[str, Any] = Body(...)) -> JSONResponse:
         }
 
         # Upsert: if session_id exists, update; otherwise insert
-        url = f"{SUPABASE_URL}/rest/v1/draft_conversations"
+        url = f"{SUPABASE_URL}/rest/v1/draft_conversations?on_conflict=session_id"
         headers = {
             "apikey": SUPABASE_SERVICE_KEY,
             "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
@@ -3860,6 +4000,17 @@ async def save_draft(body: Dict[str, Any] = Body(...)) -> JSONResponse:
         async with httpx.AsyncClient() as client:
             resp = await client.post(url, headers=headers, json=row, timeout=10.0)
             if resp.status_code >= 400:
+                if _looks_like_unique_violation(resp):
+                    # Concurrent insert won, fall back to PATCH
+                    patch_url = f"{SUPABASE_URL}/rest/v1/draft_conversations?session_id=eq.{session_id}"
+                    patch_headers = {
+                        "apikey": SUPABASE_SERVICE_KEY,
+                        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                        "Content-Type": "application/json",
+                    }
+                    resp = await client.patch(patch_url, headers=patch_headers, json=row, timeout=10.0)
+                    if resp.status_code < 400:
+                        return JSONResponse({"ok": True, "session_id": session_id})
                 return JSONResponse({"ok": False, "error": f"Database error: {resp.text}"}, status_code=500)
 
         return JSONResponse({"ok": True, "session_id": session_id})
@@ -4066,13 +4217,21 @@ async def vote_draft(session_id: str, body: Dict[str, Any] = Body(...)) -> JSONR
                 "strategy_name": model_config.get("strategy_name"),
                 "base_model_name": draft.get("model_a") or "unknown",
             }
-            await _SESSION_STORE.put(session_id, restored_session)
+            session_restored = await _SESSION_STORE.put_or_update(session_id, restored_session)
+            if not session_restored:
+                log_error("draft_session_restore_failed", {
+                    "session_id": session_id,
+                    "vote_id": str(vote_id)
+                }, None)
+                # 继续执行，投票成功但 session 未持久化到 Supabase
+                # put_or_update 内部已回退到内存存储
             print(_json_dumps({
                 "t": _utc_now_iso(),
                 "type": "draft_session_restored",
                 "session": session_id,
                 "vote_id": vote_id,
                 "winner": winner_side,
+                "persisted_to_supabase": session_restored,
             }))
 
         print(_json_dumps({
