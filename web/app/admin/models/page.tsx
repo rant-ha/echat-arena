@@ -11,6 +11,8 @@ import {
   Check,
   X,
   RefreshCw,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
 import { Button, Card } from "@/components/ui";
@@ -28,6 +30,7 @@ interface Model {
   description: string;
   created_at: string;
   updated_at: string;
+  display_order?: number;
 }
 
 export default function ModelsPage() {
@@ -38,6 +41,7 @@ export default function ModelsPage() {
   const [error, setError] = useState<string | null>(null);
   const [includeDisabled, setIncludeDisabled] = useState(true);
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
+  const [isReordering, setIsReordering] = useState(false);
 
   const fetchModels = useCallback(async () => {
     setLoading(true);
@@ -139,6 +143,75 @@ export default function ModelsPage() {
     }
   };
 
+  const handleMoveUp = async (index: number) => {
+    if (index === 0 || isReordering) return;
+    const token = getToken();
+    if (!token) return;
+
+    setIsReordering(true);
+    const newModels = [...models];
+    [newModels[index], newModels[index - 1]] = [newModels[index - 1], newModels[index]];
+
+    // 重新计算 display_order
+    const orders = newModels.map((m, i) => ({ id: m.id, display_order: i + 1 }));
+
+    try {
+      const res = await fetch("/api/proxy/api/arena/admin/models/reorder", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "admin-token": token,
+        },
+        body: JSON.stringify({ orders }),
+      });
+
+      const data = await res.json();
+      if (data.ok) {
+        setModels(newModels);
+      } else {
+        alert(data.error || "排序失败");
+      }
+    } catch {
+      alert("网络错误");
+    } finally {
+      setIsReordering(false);
+    }
+  };
+
+  const handleMoveDown = async (index: number) => {
+    if (index === models.length - 1 || isReordering) return;
+    const token = getToken();
+    if (!token) return;
+
+    setIsReordering(true);
+    const newModels = [...models];
+    [newModels[index], newModels[index + 1]] = [newModels[index + 1], newModels[index]];
+
+    const orders = newModels.map((m, i) => ({ id: m.id, display_order: i + 1 }));
+
+    try {
+      const res = await fetch("/api/proxy/api/arena/admin/models/reorder", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "admin-token": token,
+        },
+        body: JSON.stringify({ orders }),
+      });
+
+      const data = await res.json();
+      if (data.ok) {
+        setModels(newModels);
+      } else {
+        alert(data.error || "排序失败");
+      }
+    } catch {
+      alert("网络错误");
+    } finally {
+      setIsReordering(false);
+    }
+  };
+
   return (
     <div className="p-6">
       {/* Header */}
@@ -200,7 +273,7 @@ export default function ModelsPage() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {models.map((model) => (
+          {models.map((model, index) => (
             <Card
               key={model.id}
               className={cn(
@@ -208,6 +281,26 @@ export default function ModelsPage() {
                 !model.is_enabled && "opacity-60"
               )}
             >
+              {/* Reorder buttons */}
+              <div className="flex flex-col gap-0.5">
+                <button
+                  onClick={() => handleMoveUp(index)}
+                  disabled={index === 0 || isReordering}
+                  className="rounded p-0.5 text-text-muted hover:bg-surface-elevated hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="上移"
+                >
+                  <ChevronUp className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => handleMoveDown(index)}
+                  disabled={index === models.length - 1 || isReordering}
+                  className="rounded p-0.5 text-text-muted hover:bg-surface-elevated hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="下移"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </div>
+
               {/* Icon */}
               <div
                 className={cn(
@@ -251,12 +344,12 @@ export default function ModelsPage() {
 
               {/* Meta */}
               <div className="hidden text-right text-sm text-text-muted md:block">
-                <div>权重: {model.weight}</div>
+                <div>#{index + 1} | 权重: {model.weight}</div>
                 <div>{model.api_type}</div>
               </div>
 
               {/* Actions */}
-              <div className="relative">
+              <div className={cn("relative", actionMenuId === model.id && "z-30")}>
                 <button
                   onClick={() =>
                     setActionMenuId(actionMenuId === model.id ? null : model.id)
