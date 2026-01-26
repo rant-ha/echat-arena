@@ -8,6 +8,7 @@ import { cn } from "@/components/ui";
 import { Sidebar } from "@/components/Sidebar";
 import { ConversationTurnBlock } from "@/components/ConversationTurnBlock";
 import { PromptInput } from "@/components/PromptInput";
+import { ModelSelector } from "@/components/ModelSelector";
 import ReactMarkdown from "react-markdown";
 import { useBattleStream } from "@/hooks/useBattleStream";
 import { ThinkingIndicator } from "@/components/ThinkingIndicator";
@@ -79,6 +80,11 @@ export default function DraftDetailPage() {
   const [newBattleTurns, setNewBattleTurns] = useState<ConversationHistoryTurn[]>([]);
   const [currentPrompt, setCurrentPrompt] = useState("");
 
+  // Model selector state
+  const [selectedModelKey, setSelectedModelKey] = useState<string | null>(null);
+  const [defaultModelKey, setDefaultModelKey] = useState<string | null>(null);
+  const MODEL_STORAGE_KEY = "echat-arena-v1-selected-model";
+
   const {
     status: battleStatus,
     leftText,
@@ -93,6 +99,30 @@ export default function DraftDetailPage() {
 
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
+
+  // Load model selection from localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(MODEL_STORAGE_KEY);
+      if (stored) setSelectedModelKey(stored);
+    } catch {}
+  }, []);
+
+  // Handle model change
+  const handleModelChange = useCallback((modelKey: string) => {
+    setSelectedModelKey(modelKey);
+    try {
+      localStorage.setItem(MODEL_STORAGE_KEY, modelKey);
+    } catch {}
+  }, []);
+
+  // Handle default model loaded from API
+  const handleDefaultModelLoaded = useCallback((defaultKey: string | null) => {
+    setDefaultModelKey(defaultKey);
+    if (!selectedModelKey && defaultKey) {
+      setSelectedModelKey(defaultKey);
+    }
+  }, [selectedModelKey]);
 
   // Fetch user info
   useEffect(() => {
@@ -271,8 +301,9 @@ export default function DraftDetailPage() {
   const handlePreVoteContinue = useCallback(async (message: string) => {
     if (!draft?.session_id || battleStatus === "streaming") return;
     setCurrentPrompt(message);
-    continueConversation(draft.session_id, message);
-  }, [draft?.session_id, battleStatus, continueConversation]);
+    const modelToUse = selectedModelKey || defaultModelKey || undefined;
+    continueConversation(draft.session_id, message, modelToUse);
+  }, [draft?.session_id, battleStatus, continueConversation, selectedModelKey, defaultModelKey]);
 
   // Save new battle turn when complete
   useEffect(() => {
@@ -343,6 +374,15 @@ export default function DraftDetailPage() {
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
+
+            {!isVoted && (
+              <ModelSelector
+                selectedModelKey={selectedModelKey}
+                onModelChange={handleModelChange}
+                onDefaultLoaded={handleDefaultModelLoaded}
+                disabled={battleStatus === "streaming"}
+              />
+            )}
 
             <div>
               <h1 className="text-sm font-semibold text-[var(--text-primary)]">

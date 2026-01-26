@@ -3170,6 +3170,7 @@ async def continue_battle(req: Request, body: Dict[str, Any] = Body(...)) -> Str
     """
     session_id = (body.get("session_id") or "").strip()
     user_message = (body.get("user_message") or "").strip()
+    model_key = (body.get("model_key") or "").strip() or None
 
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
@@ -3262,6 +3263,16 @@ async def continue_battle(req: Request, body: Dict[str, Any] = Body(...)) -> Str
             right_arm = right.get("arm", "empathy")
             left_model_id = left.get("model_id", REPLY_MODEL_NAME or BASELINE_MODEL_ID)
             right_model_id = right.get("model_id", REPLY_MODEL_NAME or EMPATHY_MODEL_ID)
+
+            # 如果提供了 model_key，验证并覆盖两侧模型
+            if model_key:
+                try:
+                    _get_endpoint(model_key)  # 验证模型存在
+                    left_model_id = model_key
+                    right_model_id = model_key
+                except RuntimeError:
+                    log_error("invalid_model_key_continue", {"model_key": model_key, "session_id": session_id}, None)
+                    # 保持原有模型
 
             # NEW: Use single-side context isolation from session store
             # Get current session with contexts
