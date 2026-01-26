@@ -7,32 +7,38 @@ echat-arena: AI chat arena with multi-turn conversations. Backend: FastAPI (Hero
 ## Working Memory
 <!-- Timestamped session notes. Auto-pruned after 7 days. -->
 
-## 2026-01-26 - 多项修复和功能增强
+## 2026-01-26 - 功能增强和数据结构优化
 
-**Fix 1: 邮箱验证链接自定义**
-- 创建 `/auth/verify` 端点处理自定义验证链接
-- 创建 `/auth/error` 错误页面
-- 将 `/auth/verify` 和 `/auth/error` 添加到 middleware PUBLIC_PATHS
-- 用户现在收到 `https://chat.ranai.me/auth/verify?token_hash=...` 而非 Supabase/SendGrid 链接
-- **需要用户操作**: SendGrid 禁用 Click Tracking + Supabase 修改邮件模板
+### Part 1: Draft 页面添加模型选择器
+- 后端: `/api/arena/continue` 端点支持 `model_key` 参数
+- 前端 Hook: `useBattleStream.ts` 的 `continueConversation` 添加 modelKey 参数
+- Draft 页面: 集成 ModelSelector 到 Header，仅投票前显示
+- 与 Battle 页面共享 localStorage 持久化
 
-**Fix 2: 模型排序功能**
-- 后端添加 `PUT /admin/models/reorder` 批量排序 API
-- 前端添加上下移动按钮（ChevronUp/ChevronDown）
-- **修复 "No fields to update" 错误**: 将 `/reorder` 路由移到 `/{model_id}` 之前
+### Part 2: Vote 表数据结构优化
+**问题**: `model_config` 中 `left/right` (UI层) 与 `model_a/model_b` (DB层) 混淆
+- `left/right` = 屏幕位置，随机分配
+- `model_a/model_b` = 数据库语义，固定（A=baseline, B=strategy）
 
-**Fix 3: 下拉菜单被遮挡**
-- 给打开菜单的 Card 添加 `relative z-50`
-- 解决 `backdrop-blur` 导致的 stacking context 问题
+**解决**: 新增 `winner_type` 字段
+- `model_a` → `baseline`
+- `model_b` → `strategy`
+- `tie` → `tie`
+- `both_bad` → `both_bad`
 
-**Fix 4: 投票按钮 UI 优化**
-- 移除蓝绿色渐变配色（政治敏感）
-- 使用设计系统变量: `bg-surface-tertiary`, `hover:bg-interactive-accent`
+**文件**:
+- `migrations/add_winner_type.sql` - 迁移脚本（含回填+索引）
+- `app.py` - 主投票 + Draft投票逻辑添加 winner_type
+
+### Part 3: 其他修复
+- 邮箱验证链接自定义 (`/auth/verify` 端点)
+- 模型排序功能 (`PUT /admin/models/reorder`)
+- 下拉菜单 z-index 修复
+- 投票按钮 UI 优化
 
 **Commits:**
-- `64682aa` - feat: 添加自定义邮件验证端点
-- `7859a80` - feat: 修复下拉菜单遮挡 + 添加模型排序功能
-- `dc4d82f` - fix: 修复邮箱验证链接被中间件拦截问题
+- `43310f9` - feat: 添加 winner_type 字段优化统计
+- `7b84374` - feat: Draft 页面添加模型选择器功能
 - `1e0cd67` - fix: 修复三个问题 - API路由顺序 + 投票按钮UI + 下拉菜单遮挡
 
 ---
