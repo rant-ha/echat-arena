@@ -3053,25 +3053,8 @@ async def _battle_sse(req: Request, prompt: str, session_id: str, model_key: Opt
     # Append first turn to conversation history (with context isolation)
     await _SESSION_STORE.append_turn(session_id, prompt, left_text, right_text)
 
-    # 6) background evaluation (non-blocking)
-    async def _bg_eval() -> None:
-        try:
-            score_a = await _judge_with_ai(prompt, left_text)
-            score_b = await _judge_with_ai(prompt, right_text)
-            await _SESSION_STORE.update(
-                session_id,
-                {
-                    "ai_scores": {
-                        # Keep keys aligned with anonymous labels from /battle meta
-                        "model_a": score_a,
-                        "model_b": score_b,
-                    }
-                },
-            )
-        except Exception as exc:  # pragma: no cover
-            print(f"[WARN] evaluator failed session={session_id}: {exc}", file=sys.stderr)
-
-    asyncio.create_task(_bg_eval())
+    # NOTE: AI evaluation moved to vote() endpoint for efficiency
+    # Evaluation now runs only when user actually votes, with full conversation context
 
 
 app = FastAPI(title="Empathy Arena API", version=APP_VERSION)
@@ -3901,24 +3884,54 @@ async def vote(background_tasks: BackgroundTasks, body: Dict[str, Any] = Body(..
         )
         # Continue without vote_id - post-vote chat will not be available
 
-    # Schedule background task to compute AI scores and update Supabase if not already scored
-    if ai_scores is None:
-        async def _bg_eval_and_update() -> None:
-            try:
-                p = sess.get("prompt", prompt)
-                conv_history = sess.get("conversation_history", [])
-                score_a = await _judge_with_ai(p, reply_a_text, conv_history, "reply_a")
-                score_b = await _judge_with_ai(p, reply_b_text, conv_history, "reply_b")
-                computed_scores = {"model_a": score_a, "model_b": score_b}
-                # Update session store (for any late reads)
-                await _SESSION_STORE.update(session_id, {"ai_scores": computed_scores})
-                # Backfill Supabase record
-                await _update_vote_supabase(session_id, computed_scores)
-                print(_json_dumps({"t": _utc_now_iso(), "type": "bg_eval_done", "session": session_id}))
-            except Exception as exc:  # pragma: no cover
-                print(f"[WARN] bg_eval failed session={session_id}: {exc}", file=sys.stderr)
+    # Schedule background evaluation with full conversation context
+    # NOTE: Always evaluate at vote time (evaluation removed from battle() for efficiency)
+    async def _bg_eval_and_update() -> None:
+        try:
+            p = sess.get("prompt", prompt)
+            conv_history = sess.get("conversation_history", [])
 
-        background_tasks.add_task(_bg_eval_and_update)
+            # Get conversation history from session store if not in session dict
+            if not conv_history:
+                try:
+                    fresh_sess = await _SESSION_STORE.get(session_id)
+                    if fresh_sess:
+                        conv_history = fresh_sess.get("conversation_history", [])
+                except Exception:
+                    conv_history = []
+
+            # Correct reply_key mapping based on baseline position
+            # conversation_history: reply_a = LEFT position, reply_b = RIGHT position
+            # DB convention: model_a = baseline, model_b = strategy
+            if is_left_baseline:
+                # baseline is on left -> baseline chain uses "reply_a"
+                reply_key_a = "reply_a"
+                reply_key_b = "reply_b"
+            else:
+                # baseline is on right -> baseline chain uses "reply_b"
+                reply_key_a = "reply_b"
+                reply_key_b = "reply_a"
+
+            # Evaluate each model's complete conversation chain separately
+            score_a = await _judge_with_ai(p, reply_a_text, conv_history, reply_key_a)
+            score_b = await _judge_with_ai(p, reply_b_text, conv_history, reply_key_b)
+            computed_scores = {"model_a": score_a, "model_b": score_b}
+
+            # Update session store and Supabase
+            await _SESSION_STORE.update(session_id, {"ai_scores": computed_scores})
+            await _update_vote_supabase(session_id, computed_scores)
+
+            print(_json_dumps({
+                "t": _utc_now_iso(),
+                "type": "vote_eval_complete",
+                "session": session_id,
+                "turn_count": len(conv_history) if conv_history else 1,
+                "baseline_position": "left" if is_left_baseline else "right"
+            }))
+        except Exception as exc:
+            print(f"[WARN] vote_eval failed session={session_id}: {exc}", file=sys.stderr)
+
+    background_tasks.add_task(_bg_eval_and_update)
 
     # Background: upload session snapshot to Drive (immutable file) and patch vote row with file id
     async def _bg_upload_snapshot() -> None:
@@ -4077,7 +4090,7 @@ async def get_single_draft(session_id: str) -> JSONResponse:
 
 
 @app.post(f"{API_PREFIX}/draft/{{session_id}}/vote")
-async def vote_draft(session_id: str, body: Dict[str, Any] = Body(...)) -> JSONResponse:
+async def vote_draft(session_id: str, body: Dict[str, Any] = Body(...), background_tasks: BackgroundTasks = BackgroundTasks()) -> JSONResponse:
     """Vote on a draft conversation (for resumed/expired sessions).
 
     This endpoint handles voting when the original session has expired from memory.
@@ -4176,6 +4189,44 @@ async def vote_draft(session_id: str, body: Dict[str, Any] = Body(...)) -> JSONR
         vote_id = await _insert_vote_supabase(row)
         if not vote_id:
             return JSONResponse({"ok": False, "error": "Failed to create vote"}, status_code=500)
+
+        # 6.5. Schedule background evaluation with full conversation context
+        async def _bg_eval_draft() -> None:
+            try:
+                conv_history = draft.get("conversation_history") or []
+                p = draft.get("prompt", "")
+
+                # Correct reply_key mapping based on baseline position
+                # conversation_history: reply_a = LEFT, reply_b = RIGHT
+                # DB: model_a = baseline, model_b = strategy
+                if is_left_baseline:
+                    reply_key_a = "reply_a"
+                    reply_key_b = "reply_b"
+                else:
+                    reply_key_a = "reply_b"
+                    reply_key_b = "reply_a"
+
+                # Evaluate each model's conversation chain separately
+                score_a = await _judge_with_ai(p, reply_a_text, conv_history, reply_key_a)
+                score_b = await _judge_with_ai(p, reply_b_text, conv_history, reply_key_b)
+                computed_scores = {"model_a": score_a, "model_b": score_b}
+
+                # Update Supabase vote record with AI scores
+                if vote_id:
+                    await _update_vote_supabase(session_id, computed_scores)
+
+                print(_json_dumps({
+                    "t": _utc_now_iso(),
+                    "type": "draft_vote_eval_complete",
+                    "session": session_id,
+                    "vote_id": vote_id,
+                    "turn_count": len(conv_history) if conv_history else 1,
+                    "baseline_position": "left" if is_left_baseline else "right"
+                }))
+            except Exception as exc:
+                print(f"[WARN] draft_vote_eval failed session={session_id}: {exc}", file=sys.stderr)
+
+        background_tasks.add_task(_bg_eval_draft)
 
         # 7. Delete draft
         async with httpx.AsyncClient() as client:
