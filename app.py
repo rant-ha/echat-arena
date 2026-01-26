@@ -574,7 +574,7 @@ def _build_empathy_system_prompt(emotion: str, intensity: str, support_type: str
         "约束：不要提供医疗/法律诊断；不要鼓励危险行为；如果出现自伤/他伤风险，建议寻求当地专业帮助。\n"
         f"参考标签：emotion={emotion}, intensity={intensity}, support_type={support_type}.\n"
         f"支持方式：{guide}\n"
-        "共情策略提示（来自模板）：\n"
+        "共情策略提示：\n"
         f"{template_snippet}\n"
         "输出要求：中文，语气自然像真人聊天；先共情再提问（最多一个开放式问题）；不要输出任何JSON或标签。\n"
         + SYSTEM_SAFETY_OVERRIDE

@@ -7,6 +7,36 @@ echat-arena: AI chat arena with multi-turn conversations. Backend: FastAPI (Hero
 ## Working Memory
 <!-- Timestamped session notes. Auto-pruned after 7 days. -->
 
+## 2026-01-26 - 多项修复和功能增强
+
+**Fix 1: 邮箱验证链接自定义**
+- 创建 `/auth/verify` 端点处理自定义验证链接
+- 创建 `/auth/error` 错误页面
+- 将 `/auth/verify` 和 `/auth/error` 添加到 middleware PUBLIC_PATHS
+- 用户现在收到 `https://chat.ranai.me/auth/verify?token_hash=...` 而非 Supabase/SendGrid 链接
+- **需要用户操作**: SendGrid 禁用 Click Tracking + Supabase 修改邮件模板
+
+**Fix 2: 模型排序功能**
+- 后端添加 `PUT /admin/models/reorder` 批量排序 API
+- 前端添加上下移动按钮（ChevronUp/ChevronDown）
+- **修复 "No fields to update" 错误**: 将 `/reorder` 路由移到 `/{model_id}` 之前
+
+**Fix 3: 下拉菜单被遮挡**
+- 给打开菜单的 Card 添加 `relative z-50`
+- 解决 `backdrop-blur` 导致的 stacking context 问题
+
+**Fix 4: 投票按钮 UI 优化**
+- 移除蓝绿色渐变配色（政治敏感）
+- 使用设计系统变量: `bg-surface-tertiary`, `hover:bg-interactive-accent`
+
+**Commits:**
+- `64682aa` - feat: 添加自定义邮件验证端点
+- `7859a80` - feat: 修复下拉菜单遮挡 + 添加模型排序功能
+- `dc4d82f` - fix: 修复邮箱验证链接被中间件拦截问题
+- `1e0cd67` - fix: 修复三个问题 - API路由顺序 + 投票按钮UI + 下拉菜单遮挡
+
+---
+
 ## 2026-01-25 - Draft Save & Resume Feature + Heroku Fix
 
 **New Feature: 草稿保存和恢复功能**
