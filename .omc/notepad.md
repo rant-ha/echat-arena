@@ -30,13 +30,62 @@ echat-arena: AI chat arena with multi-turn conversations. Backend: FastAPI (Hero
 - `migrations/add_winner_type.sql` - 迁移脚本（含回填+索引）
 - `app.py` - 主投票 + Draft投票逻辑添加 winner_type
 
-### Part 3: 其他修复
+### Part 3: Battle 投票揭示优化
+- 投票后不再显示实际模型 ID（如 nv/ds-v3.1-terminus）
+- 改为显示匿名标签 "Model A" / "Model B"
+- 修改文件: `web/app/battle/page.tsx` 第 740, 747 行
+
+### Part 4: SessionStore put_or_update 修复
+**问题**: 草稿恢复时 Supabase 409 冲突错误
+```
+duplicate key value violates unique constraint "arena_sessions_pkey"
+old_version: 0, new_version: 1
+```
+
+**原因**: `vote_draft()` 调用 `put()` 时用 `old_version=0` 尝试创建，但 session 可能已存在
+
+**解决**: 新增 `put_or_update()` 方法 (Check-Then-Upsert 模式)
+- 先检查 session 是否存在
+- 存在 → CAS 更新 (create_if_not_exists=False)
+- 不存在 → 创建 (create_if_not_exists=True)
+- 3 次重试 + 指数退避
+- 失败回退到内存存储
+
+**修改文件**:
+- `app.py:1715-1853` - 新增 `put_or_update()` 方法
+- `app.py:4220-4227` - `vote_draft()` 使用新方法
+
+### Part 5: 其他修复
 - 邮箱验证链接自定义 (`/auth/verify` 端点)
 - 模型排序功能 (`PUT /admin/models/reorder`)
 - 下拉菜单 z-index 修复
 - 投票按钮 UI 优化
 
+### Part 6: AI 评估时机优化
+**问题**: 评估模型在每次模型回复时都触发，API 调用次数和速率消耗过高
+
+**解决**: 将评估改为仅在用户投票时触发
+- 移除 `battle()` 中的即时评估 (原 lines 3056-3074)
+- 增强 `vote()` 评估逻辑，修复 reply_key 映射 bug
+- 为 `vote_draft()` 新增评估功能 (BackgroundTasks)
+
+**reply_key 映射修复**:
+- `conversation_history[].reply_a` = 位置层（始终左侧）
+- DB `model_a` = 语义层（始终 baseline）
+- `is_left_baseline` 决定映射：baseline 在左→reply_key_a="reply_a"，在右→reply_key_a="reply_b"
+
+**性能**: 评估 API 调用减少 50-90%（仅投票的 session 才评估）
+
+**修改文件**: `app.py`
+- 删除 battle() 评估代码
+- 修改 vote() 评估逻辑 (lines 3887-3934)
+- 修改 vote_draft() 签名 + 添加评估任务 (lines 4093, 4193-4229)
+
 **Commits:**
+- `eb50e3d` - perf: 优化 AI 评估时机，仅在用户投票时评估
+- `398503e` - chore: 更新项目进度笔记
+- `4af276d` - fix: 修复 draft API 并发请求导致的 500 错误 (put_or_update)
+- `f2af5c7` - fix: 投票后隐藏实际模型ID，显示Model A/B
 - `43310f9` - feat: 添加 winner_type 字段优化统计
 - `7b84374` - feat: Draft 页面添加模型选择器功能
 - `1e0cd67` - fix: 修复三个问题 - API路由顺序 + 投票按钮UI + 下拉菜单遮挡
