@@ -5228,6 +5228,54 @@ async def create_model(
         return _error(f"Failed to create model: {str(exc)}", status=500)
 
 
+@app.put(f"{API_PREFIX}/admin/models/reorder")
+async def reorder_models(
+    body: Dict[str, Any] = Body(...),
+    admin_token: str = Header(None, alias="admin-token")
+) -> JSONResponse:
+    """
+    Batch update model display order.
+    Body: {"orders": [{"id": "model-id", "display_order": 1}, ...]}
+    """
+    await _require_admin_token(admin_token)
+
+    orders = body.get("orders", [])
+    if not orders or not isinstance(orders, list):
+        return _error("orders array required")
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return _error("Supabase not configured", status=500)
+
+    try:
+        async with httpx.AsyncClient() as client:
+            for item in orders:
+                model_id = item.get("id")
+                display_order = item.get("display_order")
+                if not model_id or display_order is None:
+                    continue
+
+                resp = await client.patch(
+                    f"{SUPABASE_URL}/rest/v1/model_configs",
+                    params={"id": f"eq.{model_id}"},
+                    headers={
+                        "apikey": SUPABASE_SERVICE_KEY,
+                        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                        "Content-Type": "application/json",
+                        "Prefer": "return=minimal",
+                    },
+                    json={"display_order": display_order, "updated_at": datetime.utcnow().isoformat()},
+                    timeout=10.0
+                )
+
+                if resp.status_code not in (200, 204):
+                    return _error(f"Failed to update model {model_id}", status=500)
+
+        return _response({"updated": len(orders)})
+    except Exception as exc:
+        log_error(error_type="reorder_models_error", context={}, exc=exc)
+        return _error(f"Failed to reorder: {str(exc)}", status=500)
+
+
 @app.put(f"{API_PREFIX}/admin/models/{{model_id}}")
 async def update_model(
     model_id: str,
@@ -5363,54 +5411,6 @@ async def delete_model(
     except Exception as exc:
         log_error(error_type="delete_model_error", context={"model_id": model_id}, exc=exc)
         return _error(f"Failed to delete model: {str(exc)}", status=500)
-
-
-@app.put(f"{API_PREFIX}/admin/models/reorder")
-async def reorder_models(
-    body: Dict[str, Any] = Body(...),
-    admin_token: str = Header(None, alias="admin-token")
-) -> JSONResponse:
-    """
-    Batch update model display order.
-    Body: {"orders": [{"id": "model-id", "display_order": 1}, ...]}
-    """
-    await _require_admin_token(admin_token)
-
-    orders = body.get("orders", [])
-    if not orders or not isinstance(orders, list):
-        return _error("orders array required")
-
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        return _error("Supabase not configured", status=500)
-
-    try:
-        async with httpx.AsyncClient() as client:
-            for item in orders:
-                model_id = item.get("id")
-                display_order = item.get("display_order")
-                if not model_id or display_order is None:
-                    continue
-
-                resp = await client.patch(
-                    f"{SUPABASE_URL}/rest/v1/model_configs",
-                    params={"id": f"eq.{model_id}"},
-                    headers={
-                        "apikey": SUPABASE_SERVICE_KEY,
-                        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-                        "Content-Type": "application/json",
-                        "Prefer": "return=minimal",
-                    },
-                    json={"display_order": display_order, "updated_at": datetime.utcnow().isoformat()},
-                    timeout=10.0
-                )
-
-                if resp.status_code not in (200, 204):
-                    return _error(f"Failed to update model {model_id}", status=500)
-
-        return _response({"updated": len(orders)})
-    except Exception as exc:
-        log_error(error_type="reorder_models_error", context={}, exc=exc)
-        return _error(f"Failed to reorder: {str(exc)}", status=500)
 
 
 @app.get(f"{API_PREFIX}/admin/models/{{model_id}}")

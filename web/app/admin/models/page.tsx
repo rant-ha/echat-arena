@@ -278,7 +278,8 @@ export default function ModelsPage() {
               key={model.id}
               className={cn(
                 "flex items-center gap-4 p-4",
-                !model.is_enabled && "opacity-60"
+                !model.is_enabled && "opacity-60",
+                actionMenuId === model.id && "relative z-50"
               )}
             >
               {/* Reorder buttons */}
@@ -349,7 +350,7 @@ export default function ModelsPage() {
               </div>
 
               {/* Actions */}
-              <div className={cn("relative", actionMenuId === model.id && "z-30")}>
+              <div className="relative">
                 <button
                   onClick={() =>
                     setActionMenuId(actionMenuId === model.id ? null : model.id)

@@ -503,8 +503,8 @@ export default function DraftDetailPage() {
                       disabled={isVoting || battleStatus === "streaming"}
                       className={cn(
                         "rounded-xl px-4 py-3 text-sm font-medium transition-all",
-                        "bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400",
-                        "text-white shadow-lg hover:shadow-xl",
+                        "bg-surface-tertiary hover:bg-interactive-accent border border-border-strong",
+                        "text-text-secondary hover:text-white shadow-lg hover:shadow-xl",
                         "disabled:opacity-50 disabled:cursor-not-allowed"
                       )}
                     >
@@ -516,8 +516,8 @@ export default function DraftDetailPage() {
                       disabled={isVoting || battleStatus === "streaming"}
                       className={cn(
                         "rounded-xl px-4 py-3 text-sm font-medium transition-all",
-                        "bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400",
-                        "text-white shadow-lg hover:shadow-xl",
+                        "bg-surface-tertiary hover:bg-interactive-accent border border-border-strong",
+                        "text-text-secondary hover:text-white shadow-lg hover:shadow-xl",
                         "disabled:opacity-50 disabled:cursor-not-allowed"
                       )}
                     >
@@ -529,8 +529,8 @@ export default function DraftDetailPage() {
                       disabled={isVoting || battleStatus === "streaming"}
                       className={cn(
                         "rounded-xl px-4 py-3 text-sm font-medium transition-all",
-                        "bg-zinc-700 hover:bg-zinc-600",
-                        "text-white shadow-lg hover:shadow-xl",
+                        "bg-surface-tertiary hover:bg-surface-elevated border border-border-strong",
+                        "text-text-secondary shadow-lg hover:shadow-xl",
                         "disabled:opacity-50 disabled:cursor-not-allowed"
                       )}
                     >
@@ -542,8 +542,8 @@ export default function DraftDetailPage() {
                       disabled={isVoting || battleStatus === "streaming"}
                       className={cn(
                         "rounded-xl px-4 py-3 text-sm font-medium transition-all",
-                        "bg-zinc-800 hover:bg-zinc-700 border border-zinc-600",
-                        "text-zinc-300 shadow-lg hover:shadow-xl",
+                        "bg-surface-tertiary hover:bg-negative border border-border-strong",
+                        "text-text-secondary hover:text-white shadow-lg hover:shadow-xl",
                         "disabled:opacity-50 disabled:cursor-not-allowed"
                       )}
                     >
