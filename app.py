@@ -3680,6 +3680,16 @@ async def vote(background_tasks: BackgroundTasks, body: Dict[str, Any] = Body(..
     # Migration script: migrations/add_conversation_history.sql
     # Verification: migrations/verify_schema.sql
     # Rollback: migrations/rollback_conversation_history.sql
+
+    # Compute semantic winner_type for statistics
+    winner_type_map = {
+        "model_a": "baseline",
+        "model_b": "strategy",
+        "tie": "tie",
+        "both_bad": "both_bad",
+    }
+    winner_type = winner_type_map.get(mapped_vote)
+
     row = {
         "session_id": session_id,
         "user_id": user_id,
@@ -3705,6 +3715,8 @@ async def vote(background_tasks: BackgroundTasks, body: Dict[str, Any] = Body(..
         "conversation_history": conversation_history,
         # Total number of conversation turns (minimum 1)
         "turn_count": turn_count,
+        # Semantic winner type for statistics (baseline/strategy/tie/both_bad)
+        "winner_type": winner_type,
     }
 
     # stdout log (no local file)
@@ -3977,6 +3989,15 @@ async def vote_draft(session_id: str, body: Dict[str, Any] = Body(...)) -> JSONR
         conversation_history = draft.get("conversation_history") or []
         turn_count = draft.get("turn_count") or 1
 
+        # Compute semantic winner_type for statistics
+        winner_type_map = {
+            "model_a": "baseline",
+            "model_b": "strategy",
+            "tie": "tie",
+            "both_bad": "both_bad",
+        }
+        winner_type = winner_type_map.get(mapped_vote)
+
         row = {
             "session_id": session_id,
             "user_id": user_id,
@@ -3991,6 +4012,8 @@ async def vote_draft(session_id: str, body: Dict[str, Any] = Body(...)) -> JSONR
             "conversation_history": conversation_history,
             "turn_count": turn_count,
             "base_model_name": draft.get("model_a") or "unknown",
+            # Semantic winner type for statistics (baseline/strategy/tie/both_bad)
+            "winner_type": winner_type,
             # Optional fields for schema consistency
             "user_tags": None,
             "user_comment": None,
