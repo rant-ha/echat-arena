@@ -737,14 +737,14 @@ export default function BattlePage() {
                     leftRevealed={
                       voteState.isRevealed
                         ? {
-                            label: revealLeft?.model_id || "Model A",
+                            label: "Model A",
                           }
                         : undefined
                     }
                     rightRevealed={
                       voteState.isRevealed
                         ? {
-                            label: revealRight?.model_id || "Model B",
+                            label: "Model B",
                           }
                         : undefined
                     }
