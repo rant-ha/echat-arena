@@ -364,13 +364,19 @@ export default function BattlePage() {
       let user: any = undefined;
       try {
         const supabase = createSupabaseBrowserClient();
-        const { data, error: authErr } = await supabase.auth.getSession();
+        const { data, error: authErr } = await supabase.auth.getUser();
         if (authErr) {
-          console.warn("supabase.auth.getSession() failed", authErr);
+          console.warn("supabase.auth.getUser() failed", authErr);
+          return; // Don't save if user is not authenticated
         }
-        user = data.session?.user;
+        user = data.user;
+        if (!user?.id) {
+          console.warn("No user id available, skipping draft save");
+          return; // Don't save if user id is undefined
+        }
       } catch (err) {
         console.warn("createSupabaseBrowserClient() failed", err);
+        return; // Don't save on error
       }
 
       await fetch("/api/proxy/api/arena/draft", {
@@ -464,11 +470,11 @@ export default function BattlePage() {
         let user: any = undefined;
         try {
           const supabase = createSupabaseBrowserClient();
-          const { data, error: authErr } = await supabase.auth.getSession();
+          const { data, error: authErr } = await supabase.auth.getUser();
           if (authErr) {
-            console.warn("supabase.auth.getSession() failed", authErr);
+            console.warn("supabase.auth.getUser() failed", authErr);
           }
-          user = data.session?.user;
+          user = data.user;
         } catch (err) {
           console.warn("createSupabaseBrowserClient() failed", err);
         }

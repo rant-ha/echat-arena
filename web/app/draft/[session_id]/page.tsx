@@ -305,6 +305,33 @@ export default function DraftDetailPage() {
     continueConversation(draft.session_id, message, modelToUse);
   }, [draft?.session_id, battleStatus, continueConversation, selectedModelKey, defaultModelKey]);
 
+  // Save draft update to database when new battle turn is complete
+  const saveDraftUpdate = useCallback(async (newTurn: ConversationHistoryTurn, allTurns: ConversationHistoryTurn[]) => {
+    if (!draft?.session_id) return;
+    try {
+      // Use passed allTurns to avoid stale closure
+      await fetch("/api/proxy/api/arena/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: draft.session_id,
+          user_id: userId,
+          user_email: userEmail,
+          prompt: draft.prompt,
+          reply_a: newTurn.reply_a,
+          reply_b: newTurn.reply_b,
+          model_a: draft.model_a,
+          model_b: draft.model_b,
+          conversation_history: allTurns,
+          turn_count: allTurns.length,
+          model_config: draft.model_config,
+        }),
+      });
+      // Do NOT call setDraft - avoid duplicate rendering
+      // newBattleTurns handles display, database handles persistence
+    } catch (err) { console.warn("Failed to save draft update:", err); }
+  }, [draft?.session_id, draft?.prompt, draft?.model_a, draft?.model_b, draft?.model_config, userId, userEmail]);
+
   // Save new battle turn when complete
   useEffect(() => {
     if (battleStatus === "done" && leftText && rightText && currentPrompt) {
@@ -314,10 +341,17 @@ export default function DraftDetailPage() {
         reply_a: leftText,
         reply_b: rightText,
       };
+
+      // Build complete history including new turn (avoid stale closure)
+      const allTurns = [...(draft?.conversation_history || []), ...newBattleTurns, newTurn];
+
       setNewBattleTurns(prev => [...prev, newTurn]);
       setCurrentPrompt("");
+
+      // Pass complete history to save function
+      if (draft?.session_id) saveDraftUpdate(newTurn, allTurns);
     }
-  }, [battleStatus, leftText, rightText, currentPrompt, draft?.conversation_history?.length, newBattleTurns.length]);
+  }, [battleStatus, leftText, rightText, currentPrompt, draft?.conversation_history, newBattleTurns, draft?.session_id, saveDraftUpdate]);
 
   return (
     <div className="flex min-h-screen bg-[var(--main-bg)] text-[var(--text-primary)]">

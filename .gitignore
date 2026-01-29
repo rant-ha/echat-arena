@@ -1,15 +1,30 @@
-# local credentials / caches
-.codex/auth.json
+# Dependencies
+/node_modules/
+/FastChat/
+
+# Build artifacts
+/.next/
+/dist/
+/build/
+
+# Python
 __pycache__/
-FastChat/
+*.pyc
+*.pyo
+*.pyd
 
-# Architecture planning docs (internal only)
+# Local caches and credentials
+/.codex/auth.json
+/tem/
+/mcp.json
+
+# Internal Documentation (already ignored by default if not checked in, but good to be explicit)
 ARCHITECT_PLAN_V2.md
-
-# Architecture protection scheme (internal only)
 plans/ARCHITECT_PROTECTION_SCHEME.md
-
-# Multi-turn spec (internal research / drafts)
 plans/MULTI_TURN_SPEC.md
 
-mcp.json
+# OS-specific
+.DS_Store
+
+# Editor-specific
+.vscode/
