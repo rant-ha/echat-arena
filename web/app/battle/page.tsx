@@ -75,6 +75,7 @@ export default function BattlePage() {
   const [postVoteTurns, setPostVoteTurns] = useState<PostVoteTurn[]>([]);
   const [postVoteCurrentReply, setPostVoteCurrentReply] = useState("");
   const [isPostVoteChatting, setIsPostVoteChatting] = useState(false);
+  const [restoredSessionId, setRestoredSessionId] = useState<string | null>(null);
 
   // M-06: Memoize callbacks to prevent unnecessary re-renders
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
@@ -86,6 +87,32 @@ export default function BattlePage() {
      supabase.auth.getUser().then(({ data }) => {
        if (data.user?.email) setUserEmail(data.user.email);
      });
+  }, []);
+
+  // 恢复投票后状态
+  useEffect(() => {
+    const saved = localStorage.getItem('postVoteState');
+    if (!saved) return;
+
+    try {
+      const { session_id, winnerSide: savedWinner, timestamp } = JSON.parse(saved);
+
+      // 检查是否过期（30天）
+      if (Date.now() - timestamp > 30 * 24 * 60 * 60 * 1000) {
+        localStorage.removeItem('postVoteState');
+        return;
+      }
+
+      // 恢复状态
+      setRestoredSessionId(session_id);
+      setWinnerSide(savedWinner);
+      setVoteState(prev => ({
+        ...prev,
+        isRevealed: true,
+      }));
+    } catch (e) {
+      localStorage.removeItem('postVoteState');
+    }
   }, []);
 
   // Multi-turn conversation state
@@ -180,7 +207,8 @@ export default function BattlePage() {
 
   // 投票后发送消息
   const postVoteChatSend = useCallback(async (message: string) => {
-    if (!meta?.session_id) {
+    const sessionId = meta?.session_id || restoredSessionId;
+    if (!sessionId) {
       setVoteState((prev) => ({ ...prev, error: "缺少 session_id" }));
       return;
     }
@@ -193,7 +221,7 @@ export default function BattlePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          session_id: meta.session_id,
+          session_id: sessionId,
           user_message: message,
         }),
       });
@@ -285,18 +313,32 @@ export default function BattlePage() {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setVoteState((prev) => ({ ...prev, error: message }));
+
+      // 检测 session 过期
+      if (message.includes('Invalid session') || message.includes('Must vote')) {
+        localStorage.removeItem('postVoteState');
+        setVoteState((prev) => ({
+          ...prev,
+          error: "会话已过期，请开始新对话",
+          isRevealed: false,
+        }));
+        setWinnerSide(null);
+      } else {
+        setVoteState((prev) => ({ ...prev, error: message }));
+      }
+
       setIsPostVoteChatting(false);
     }
-  }, [meta?.session_id, postVoteTurns.length]);
+  }, [meta?.session_id, restoredSessionId, postVoteTurns.length]);
 
   // 刷新恢复投票后聊天历史
   useEffect(() => {
-    if (voteState.isRevealed && meta?.session_id && postVoteTurns.length === 0) {
+    const sessionId = meta?.session_id || restoredSessionId;
+    if (voteState.isRevealed && sessionId && postVoteTurns.length === 0) {
       const fetchHistory = async () => {
         try {
           const res = await fetch(
-            `/api/proxy/api/arena/chat/history?session_id=${meta.session_id}`
+            `/api/proxy/api/arena/chat/history?session_id=${sessionId}`
           );
           if (!res.ok) return;
 
@@ -311,7 +353,7 @@ export default function BattlePage() {
       };
       fetchHistory();
     }
-  }, [voteState.isRevealed, meta?.session_id, postVoteTurns.length]);
+  }, [voteState.isRevealed, meta?.session_id, restoredSessionId, postVoteTurns.length]);
 
   const handleSubmitPrompt = useCallback(
     (inputPrompt: string) => {
@@ -333,6 +375,7 @@ export default function BattlePage() {
 
       // Only reset vote state on first turn
       if (currentTurn === 0) {
+        localStorage.removeItem('postVoteState');
         setVoteState({
           choice: null,
           isSubmitting: false,
@@ -523,6 +566,15 @@ export default function BattlePage() {
 
         setWinnerSide(winner);
 
+        // 保存投票状态到 localStorage
+        if (winner && meta?.session_id) {
+          localStorage.setItem('postVoteState', JSON.stringify({
+            session_id: meta.session_id,
+            winnerSide: winner,
+            timestamp: Date.now(),
+          }));
+        }
+
         // 删除草稿（已投票）
         if (meta?.session_id) {
           fetch(`/api/proxy/api/arena/draft/${meta.session_id}`, {
@@ -542,6 +594,7 @@ export default function BattlePage() {
   );
 
   const handleReset = useCallback(() => {
+    localStorage.removeItem('postVoteState');
     reset();
     setPrompt("");
     setVoteState({
@@ -558,6 +611,7 @@ export default function BattlePage() {
     setPostVoteTurns([]);
     setPostVoteCurrentReply("");
     setIsPostVoteChatting(false);
+    setRestoredSessionId(null);
   }, [reset]);
 
   const isStreaming = status === "streaming";

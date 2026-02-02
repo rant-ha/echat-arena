@@ -4496,6 +4496,70 @@ async def cleanup_deleted_sessions_endpoint(
     })
 
 
+async def _reconstruct_session_from_votes(session_id: str) -> Optional[Dict[str, Any]]:
+    """从 votes 表重建 session，支持永久对话。"""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/votes",
+                params={"session_id": f"eq.{session_id}", "select": "*"},
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                },
+            )
+            if resp.status_code != 200:
+                return None
+
+            votes = resp.json()
+            if not votes:
+                return None
+
+            vote = votes[0]
+            model_config = vote.get("model_config") or {}
+            left_config = model_config.get("left", {})
+            right_config = model_config.get("right", {})
+
+            # 确定 winner side
+            user_vote = vote.get("user_vote")
+            is_left_baseline = left_config.get("arm") == "baseline"
+
+            if user_vote == "model_a":  # baseline wins
+                winner = "left" if is_left_baseline else "right"
+            elif user_vote == "model_b":  # strategy wins
+                winner = "right" if is_left_baseline else "left"
+            else:
+                winner = None  # tie/both_bad - 不能继续对话
+
+            if not winner:
+                return None
+
+            return {
+                "session_id": session_id,
+                "vote_id": str(vote.get("id")),
+                "winner": winner,
+                "user_id": vote.get("user_id"),
+                "left": {
+                    "arm": left_config.get("arm", "baseline"),
+                    "model_id": left_config.get("model_id"),
+                },
+                "right": {
+                    "arm": right_config.get("arm", "empathy"),
+                    "model_id": right_config.get("model_id"),
+                },
+                "conversation_history": vote.get("conversation_history", []),
+                "last_template_id": model_config.get("template_id") or vote.get("template_id"),
+                "last_strategy_name": model_config.get("strategy_name") or vote.get("strategy_name"),
+                "_reconstructed": True,
+            }
+    except Exception as e:
+        print(f"Failed to reconstruct session: {e}", file=sys.stderr)
+        return None
+
+
 # ============================================================================
 # Post-Vote Chat Endpoints
 # ============================================================================
@@ -4541,7 +4605,10 @@ async def post_vote_chat(req: Request, body: Dict[str, Any] = Body(...)) -> Stre
     # Validate session
     sess = await _SESSION_STORE.get(session_id)
     if not sess:
-        raise HTTPException(status_code=400, detail="Invalid session")
+        # 尝试从数据库重建 session（支持永久对话）
+        sess = await _reconstruct_session_from_votes(session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="Vote not found for this session")
 
     # Check if session has voted (winner must be set)
     winner = sess.get("winner")
@@ -4567,7 +4634,10 @@ async def post_vote_chat(req: Request, body: Dict[str, Any] = Body(...)) -> Stre
     
     # Build combined history for context-aware classification
     # 1. Get pre-vote conversation history
-    pre_vote_history = await _SESSION_STORE.get_conversation_history(session_id)
+    if sess.get("_reconstructed"):
+        pre_vote_history = sess.get("conversation_history", [])
+    else:
+        pre_vote_history = await _SESSION_STORE.get_conversation_history(session_id)
     
     # 2. Get post-vote conversation history from database (best-effort; never block chat)
     post_vote_turns: List[Dict[str, Any]] = []
