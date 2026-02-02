@@ -88,6 +88,7 @@ export default function ChatDetailPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentReply, setCurrentReply] = useState("");
   const [newTurns, setNewTurns] = useState<{turn_index: number; user_message: string; assistant_message: string; created_at: string}[]>([]);
+  const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
 
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
@@ -169,6 +170,7 @@ export default function ChatDetailPage() {
 
     setIsStreaming(true);
     setCurrentReply("");
+    setPendingUserMessage(message);  // 立即保存用户消息
 
     try {
       const res = await fetch("/api/proxy/api/arena/chat", {
@@ -214,6 +216,7 @@ export default function ChatDetailPage() {
                 created_at: new Date().toISOString(),
               }]);
               setCurrentReply("");
+              setPendingUserMessage(null);  // 清除pending状态
             }
           } catch {}
         }
@@ -355,6 +358,19 @@ export default function ChatDetailPage() {
                     </div>
                   </div>
                 ))}
+
+                {/* 流式对话中的用户消息 */}
+                {pendingUserMessage && (
+                  <div className="space-y-4">
+                    <div className="flex justify-end">
+                      <div className="max-w-[85%] rounded-2xl bg-surface-elevated px-4 py-3 text-text-primary">
+                        <div className="prose prose-sm prose-invert max-w-none">
+                          <ReactMarkdown>{pendingUserMessage}</ReactMarkdown>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* 流式回复 */}
                 {currentReply && (
