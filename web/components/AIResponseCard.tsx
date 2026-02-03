@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import ReactMarkdown from "react-markdown";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 import { useState } from "react";
 import { cn } from "./ui";
 import { Copy, Check } from "lucide-react";
@@ -89,7 +89,7 @@ export function AIResponseCard({
             <div className="flex justify-end">
               <div className="max-w-[90%] rounded-2xl bg-surface-elevated px-4 py-2.5 text-text-primary">
                 <div className="prose prose-sm prose-invert max-w-none break-words">
-                  <ReactMarkdown>{turn.user_message}</ReactMarkdown>
+                  <MarkdownRenderer>{turn.user_message}</MarkdownRenderer>
                 </div>
               </div>
             </div>
@@ -97,7 +97,7 @@ export function AIResponseCard({
             <div className="flex justify-start w-full">
               <div className="w-full rounded-xl bg-transparent text-text-secondary">
                 <div className="prose prose-sm prose-invert max-w-none break-words">
-                  <ReactMarkdown>{turn.assistant_message}</ReactMarkdown>
+                  <MarkdownRenderer>{turn.assistant_message}</MarkdownRenderer>
                 </div>
               </div>
             </div>
@@ -110,7 +110,7 @@ export function AIResponseCard({
               <div className="prose prose-sm prose-invert max-w-none break-words">
                 {postVoteCurrentReply ? (
                   <>
-                    <ReactMarkdown>{postVoteCurrentReply}</ReactMarkdown>
+                    <MarkdownRenderer>{postVoteCurrentReply}</MarkdownRenderer>
                     {isPostVoteChatting && (
                       <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-interactive-accent align-middle" />
                     )}
@@ -173,7 +173,7 @@ export function AIResponseCard({
           <div className="flex justify-start w-full">
             <div className="w-full">
               <div className="prose prose-sm prose-invert max-w-none break-words leading-relaxed text-text-secondary prose-pre:bg-surface-primary prose-pre:border prose-pre:border-border-faint prose-code:bg-surface-elevated prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
-                <ReactMarkdown>{content}</ReactMarkdown>
+                <MarkdownRenderer>{content}</MarkdownRenderer>
                 {isStreaming && (
                   <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-interactive-accent align-middle" />
                 )}

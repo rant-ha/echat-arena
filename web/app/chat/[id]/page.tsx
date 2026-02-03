@@ -8,7 +8,7 @@ import { cn } from "@/components/ui";
 import { Sidebar } from "@/components/Sidebar";
 import { ConversationTurnBlock } from "@/components/ConversationTurnBlock";
 import { PromptInput } from "@/components/PromptInput";
-import ReactMarkdown from "react-markdown";
+import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 
 type VoteChoice = "model_a" | "model_b" | "tie" | "both_bad" | string;
 
@@ -345,14 +345,14 @@ export default function ChatDetailPage() {
                     <div className="flex justify-end">
                       <div className="max-w-[85%] rounded-2xl bg-surface-elevated px-4 py-3 text-text-primary">
                         <div className="prose prose-sm prose-invert max-w-none">
-                          <ReactMarkdown>{turn.user_message}</ReactMarkdown>
+                          <MarkdownRenderer>{turn.user_message}</MarkdownRenderer>
                         </div>
                       </div>
                     </div>
                     <div className="flex justify-start">
                       <div className="max-w-[85%] rounded-xl text-text-secondary">
                         <div className="prose prose-sm prose-invert max-w-none">
-                          <ReactMarkdown>{turn.assistant_message}</ReactMarkdown>
+                          <MarkdownRenderer>{turn.assistant_message}</MarkdownRenderer>
                         </div>
                       </div>
                     </div>
@@ -365,7 +365,7 @@ export default function ChatDetailPage() {
                     <div className="flex justify-end">
                       <div className="max-w-[85%] rounded-2xl bg-surface-elevated px-4 py-3 text-text-primary">
                         <div className="prose prose-sm prose-invert max-w-none">
-                          <ReactMarkdown>{pendingUserMessage}</ReactMarkdown>
+                          <MarkdownRenderer>{pendingUserMessage}</MarkdownRenderer>
                         </div>
                       </div>
                     </div>
@@ -377,7 +377,7 @@ export default function ChatDetailPage() {
                   <div className="flex justify-start">
                     <div className="max-w-[85%] rounded-xl text-text-secondary">
                       <div className="prose prose-sm prose-invert max-w-none">
-                        <ReactMarkdown>{currentReply}</ReactMarkdown>
+                        <MarkdownRenderer>{currentReply}</MarkdownRenderer>
                         <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-interactive-accent align-middle" />
                       </div>
                     </div>

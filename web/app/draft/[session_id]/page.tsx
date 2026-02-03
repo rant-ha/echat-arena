@@ -9,7 +9,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { ConversationTurnBlock } from "@/components/ConversationTurnBlock";
 import { PromptInput } from "@/components/PromptInput";
 import { ModelSelector } from "@/components/ModelSelector";
-import ReactMarkdown from "react-markdown";
+import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { useBattleStream } from "@/hooks/useBattleStream";
 import { ThinkingIndicator } from "@/components/ThinkingIndicator";
 
@@ -511,14 +511,14 @@ export default function DraftDetailPage() {
                     <div className="flex justify-end">
                       <div className="max-w-[85%] rounded-2xl bg-surface-elevated px-4 py-3 text-text-primary">
                         <div className="prose prose-sm prose-invert max-w-none">
-                          <ReactMarkdown>{turn.user_message}</ReactMarkdown>
+                          <MarkdownRenderer>{turn.user_message}</MarkdownRenderer>
                         </div>
                       </div>
                     </div>
                     <div className="flex justify-start">
                       <div className="max-w-[85%] rounded-xl text-text-secondary">
                         <div className="prose prose-sm prose-invert max-w-none">
-                          <ReactMarkdown>{turn.assistant_message}</ReactMarkdown>
+                          <MarkdownRenderer>{turn.assistant_message}</MarkdownRenderer>
                         </div>
                       </div>
                     </div>
@@ -532,7 +532,7 @@ export default function DraftDetailPage() {
                       <div className="prose prose-sm prose-invert max-w-none">
                         {currentReply ? (
                           <>
-                            <ReactMarkdown>{currentReply}</ReactMarkdown>
+                            <MarkdownRenderer>{currentReply}</MarkdownRenderer>
                             {isStreaming && (
                               <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-interactive-accent align-middle" />
                             )}
