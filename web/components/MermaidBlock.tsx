@@ -25,6 +25,9 @@ export function MermaidBlock({ chart }: MermaidBlockProps) {
     async function render() {
       if (!containerRef.current) return;
       try {
+        // 先验证语法，避免 mermaid 在 DOM 中插入错误元素
+        await mermaid.parse(chart);
+
         const { svg } = await mermaid.render(`mermaid-${id}`, chart);
         if (!cancelled && containerRef.current) {
           containerRef.current.innerHTML = svg;
