@@ -98,3 +98,29 @@
 .katex-display > .katex {
   white-space: normal;
 }
+
+/* Override Tailwind Typography inline code 'chip' styling (prose code) */
+/* Removes the rounded background look like `Node` while keeping monospace font */
+.prose code,
+.prose-code,
+.prose .inline-code {
+  background-color: transparent !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  color: inherit !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Segoe UI Mono", "Noto Mono", monospace !important;
+  font-weight: 600; /* keep slight emphasis if desired */
+}
+
+/* Remove the surrounding backtick content that the typography plugin sometimes adds */
+.prose code::before,
+.prose code::after {
+  content: none !important;
+}
+
+/* Keep fenced code blocks styled as code blocks (no change) */
+.prose pre code {
+  background-color: transparent; /* underlying pre controls background */
+  padding: 0;
+  border-radius: 0;
+}
