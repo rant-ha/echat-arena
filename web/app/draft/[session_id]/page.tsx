@@ -279,12 +279,40 @@ export default function DraftDetailPage() {
               setCurrentReply(fullReply);
             }
             if (json.type === "finish" || json.finish) {
-              setNewTurns(prev => [...prev, {
-                turn_index: prev.length + 1,
-                user_message: message,
-                assistant_message: fullReply,
-                created_at: new Date().toISOString(),
-              }]);
+              // 消息已由后端保存到数据库，重新获取以确保数据一致性
+              if (voteId) {
+                const supabase = createSupabaseBrowserClient();
+                const { data: turnsData } = await supabase
+                  .from("post_vote_turns")
+                  .select("*")
+                  .eq("vote_id", voteId)
+                  .order("turn_index", { ascending: true });
+
+                if (turnsData) {
+                  setNewTurns(turnsData.map(t => ({
+                    turn_index: t.turn_index,
+                    user_message: t.user_message,
+                    assistant_message: t.assistant_message,
+                    created_at: t.created_at,
+                  })));
+                } else {
+                  // 回退：如果获取失败，保留本地状态
+                  setNewTurns(prev => [...prev, {
+                    turn_index: prev.length + 1,
+                    user_message: message,
+                    assistant_message: fullReply,
+                    created_at: new Date().toISOString(),
+                  }]);
+                }
+              } else {
+                // 没有 voteId 时回退到本地状态
+                setNewTurns(prev => [...prev, {
+                  turn_index: prev.length + 1,
+                  user_message: message,
+                  assistant_message: fullReply,
+                  created_at: new Date().toISOString(),
+                }]);
+              }
               setCurrentReply("");
             }
           } catch {}
@@ -295,7 +323,7 @@ export default function DraftDetailPage() {
     } finally {
       setIsStreaming(false);
     }
-  }, [draft?.session_id, isStreaming, winnerSide]);
+  }, [draft?.session_id, isStreaming, winnerSide, voteId]);
 
   // Pre-vote continue conversation (dual model battle)
   const handlePreVoteContinue = useCallback(async (message: string) => {

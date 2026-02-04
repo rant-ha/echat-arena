@@ -331,29 +331,34 @@ export default function BattlePage() {
     }
   }, [meta?.session_id, restoredSessionId, postVoteTurns.length]);
 
-  // 刷新恢复投票后聊天历史
-  useEffect(() => {
-    const sessionId = meta?.session_id || restoredSessionId;
-    if (voteState.isRevealed && sessionId && postVoteTurns.length === 0) {
-      const fetchHistory = async () => {
-        try {
-          const res = await fetch(
-            `/api/proxy/api/arena/chat/history?session_id=${sessionId}`
-          );
-          if (!res.ok) return;
+  // 刷新恢复投票后聊天历史 - 当从 localStorage 恢复 session 后立即加载
+  const [historyFetched, setHistoryFetched] = useState(false);
 
-          const json = await res.json();
-          const data = json?.data || json;
-          if (data.turns && Array.isArray(data.turns)) {
-            setPostVoteTurns(data.turns);
-          }
-        } catch (err) {
-          console.warn("Failed to fetch post-vote chat history:", err);
+  useEffect(() => {
+    // 只有从 localStorage 恢复的 session 才需要获取历史
+    // 当前 battle 的新消息会在 postVoteChatSend 完成时直接添加到 state
+    if (!restoredSessionId || historyFetched) return;
+
+    const fetchHistory = async () => {
+      try {
+        const res = await fetch(
+          `/api/proxy/api/arena/chat/history?session_id=${restoredSessionId}`
+        );
+        if (!res.ok) return;
+
+        const json = await res.json();
+        const data = json?.data || json;
+        if (data.turns && Array.isArray(data.turns)) {
+          setPostVoteTurns(data.turns);
         }
-      };
-      fetchHistory();
-    }
-  }, [voteState.isRevealed, meta?.session_id, restoredSessionId, postVoteTurns.length]);
+      } catch (err) {
+        console.warn("Failed to fetch post-vote chat history:", err);
+      } finally {
+        setHistoryFetched(true);
+      }
+    };
+    fetchHistory();
+  }, [restoredSessionId, historyFetched]);
 
   const handleSubmitPrompt = useCallback(
     (inputPrompt: string) => {

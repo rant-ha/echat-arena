@@ -4965,13 +4965,16 @@ async def get_post_vote_chat_history(session_id: str) -> JSONResponse:
     """
     if not session_id or not session_id.strip():
         return _error("session_id is required")
-    
+
     session_id = session_id.strip()
-    
-    # Validate session
+
+    # Validate session - try memory store first, then reconstruct from DB
     sess = await _SESSION_STORE.get(session_id)
     if not sess:
-        return _error("session not found or expired", status=404)
+        # 尝试从数据库重建 session（支持永久对话）
+        sess = await _reconstruct_session_from_votes(session_id)
+        if not sess:
+            return _error("session not found or expired", status=404)
     
     # Get vote_id and winner from session
     vote_id = sess.get("vote_id")
