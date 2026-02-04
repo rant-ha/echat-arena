@@ -209,28 +209,15 @@ export default function ChatDetailPage() {
               setCurrentReply(fullReply);
             }
             if (json.type === "finish" || json.finish) {
-              // 消息已由后端保存到数据库，重新获取以确保数据一致性
-              const supabase = createSupabaseBrowserClient();
-              const { data: turnsData } = await supabase
-                .from("post_vote_turns")
-                .select("*")
-                .eq("vote_id", id)
-                .order("turn_index", { ascending: true });
-
-              if (turnsData) {
-                setPostTurns(turnsData as PostVoteTurn[]);
-                setNewTurns([]); // 清空临时状态，所有数据已在 postTurns 中
-              } else {
-                // 回退：如果获取失败，保留本地状态
-                setNewTurns(prev => [...prev, {
-                  turn_index: postTurns.length + prev.length + 1,
-                  user_message: message,
-                  assistant_message: fullReply,
-                  created_at: new Date().toISOString(),
-                }]);
-              }
+              // 乐观更新：先用本地数据立即更新 UI
+              setNewTurns(prev => [...prev, {
+                turn_index: postTurns.length + prev.length + 1,
+                user_message: message,
+                assistant_message: fullReply,
+                created_at: new Date().toISOString(),
+              }]);
               setCurrentReply("");
-              setPendingUserMessage(null);  // 清除pending状态
+              setPendingUserMessage(null);
             }
           } catch {}
         }
@@ -240,7 +227,7 @@ export default function ChatDetailPage() {
     } finally {
       setIsStreaming(false);
     }
-  }, [vote?.session_id, isStreaming, canContinue, postTurns.length, id]);
+  }, [vote?.session_id, isStreaming, canContinue, postTurns.length]);
 
   return (
     <div className="flex min-h-screen bg-[var(--main-bg)] text-[var(--text-primary)]">

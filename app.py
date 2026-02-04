@@ -4857,13 +4857,6 @@ async def post_vote_chat(req: Request, body: Dict[str, Any] = Body(...)) -> Stre
             # Ensure any generator exception is retrieved
             assistant_text = await gen_task
 
-            # Phase 8.2: Unified SSE frame schema - finish frame
-            yield _sse_data({
-                "type": "finish",
-                "side": winner_side,
-                "finish": True
-            })
-
             # Write to database (concurrency-safe): retry on UNIQUE(vote_id, turn_index) conflict
             base_turn_index = len(post_vote_turns) + 1
             user_id = sess.get("user_id")  # Get from session if available
@@ -4916,6 +4909,15 @@ async def post_vote_chat(req: Request, body: Dict[str, Any] = Body(...)) -> Stre
                     ),
                     file=sys.stderr,
                 )
+
+            # Phase 8.2: Unified SSE frame schema - finish frame (sent after DB write)
+            yield _sse_data({
+                "type": "finish",
+                "side": winner_side,
+                "saved": saved_turn_index is not None,
+                "turn_index": saved_turn_index,
+                "finish": True
+            })
 
         except Exception as exc:
             # Phase 8.2: Unified SSE frame schema - error frame

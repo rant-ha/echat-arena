@@ -335,9 +335,8 @@ export default function BattlePage() {
   const [historyFetched, setHistoryFetched] = useState(false);
 
   useEffect(() => {
-    // 只有从 localStorage 恢复的 session 才需要获取历史
-    // 当前 battle 的新消息会在 postVoteChatSend 完成时直接添加到 state
-    if (!restoredSessionId || historyFetched) return;
+    // 守卫：不要在用户正在聊天或已有本地消息时 fetch（防止竞态覆盖）
+    if (!restoredSessionId || historyFetched || isPostVoteChatting || postVoteTurns.length > 0) return;
 
     const fetchHistory = async () => {
       try {
@@ -358,7 +357,7 @@ export default function BattlePage() {
       }
     };
     fetchHistory();
-  }, [restoredSessionId, historyFetched]);
+  }, [restoredSessionId, historyFetched, isPostVoteChatting, postVoteTurns.length]);
 
   const handleSubmitPrompt = useCallback(
     (inputPrompt: string) => {
