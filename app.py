@@ -4531,6 +4531,8 @@ async def _reconstruct_session_from_votes(session_id: str) -> Optional[Dict[str,
                 winner = "left" if is_left_baseline else "right"
             elif user_vote == "model_b":  # strategy wins
                 winner = "right" if is_left_baseline else "left"
+            elif user_vote in ("left", "right"):  # 直接使用 left/right 投票值
+                winner = user_vote
             else:
                 winner = None  # tie/both_bad - 不能继续对话
 

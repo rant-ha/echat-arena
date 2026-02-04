@@ -68,12 +68,21 @@ export default function DraftDetailPage() {
 
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentReply, setCurrentReply] = useState("");
+  // 数据库加载的 post-vote turns
+  const [postVoteTurns, setPostVoteTurns] = useState<{
+    turn_index: number;
+    user_message: string;
+    assistant_message: string;
+    created_at: string;
+  }[]>([]);
+  // 当前会话新增的 turns（乐观更新）
   const [newTurns, setNewTurns] = useState<{
     turn_index: number;
     user_message: string;
     assistant_message: string;
     created_at: string;
   }[]>([]);
+  const [historyFetched, setHistoryFetched] = useState(false);
 
   // Pre-vote battle state
   const [currentTurn, setCurrentTurn] = useState(0);
@@ -167,6 +176,41 @@ export default function DraftDetailPage() {
       cancelled = true;
     };
   }, [session_id]);
+
+  // Fetch post-vote chat history on page load
+  useEffect(() => {
+    if (!session_id || historyFetched || isStreaming) return;
+
+    const fetchPostVoteHistory = async () => {
+      try {
+        const res = await fetch(
+          `/api/proxy/api/arena/chat/history?session_id=${session_id}`
+        );
+        if (!res.ok) return;
+
+        const json = await res.json();
+        const data = json?.data || json;
+
+        if (data.turns && Array.isArray(data.turns) && data.turns.length > 0) {
+          setPostVoteTurns(data.turns);
+          // 恢复投票状态
+          setIsVoted(true);
+          if (data.winner_side === "left" || data.winner_side === "right") {
+            setWinnerSide(data.winner_side);
+          }
+          if (data.vote_id) {
+            setVoteId(data.vote_id);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to fetch post-vote chat history:", err);
+      } finally {
+        setHistoryFetched(true);
+      }
+    };
+
+    fetchPostVoteHistory();
+  }, [session_id, historyFetched, isStreaming]);
 
   // Vote handler
   const handleVote = useCallback(async (choice: "left" | "right" | "tie" | "both_bad") => {
@@ -281,7 +325,7 @@ export default function DraftDetailPage() {
             if (json.type === "finish" || json.finish) {
               // 乐观更新：先用本地数据立即更新 UI
               setNewTurns(prev => [...prev, {
-                turn_index: prev.length + 1,
+                turn_index: postVoteTurns.length + prev.length + 1,
                 user_message: message,
                 assistant_message: fullReply,
                 created_at: new Date().toISOString(),
@@ -296,7 +340,7 @@ export default function DraftDetailPage() {
     } finally {
       setIsStreaming(false);
     }
-  }, [draft?.session_id, isStreaming, winnerSide]);
+  }, [draft?.session_id, isStreaming, winnerSide, postVoteTurns.length]);
 
   // Pre-vote continue conversation (dual model battle)
   const handlePreVoteContinue = useCallback(async (message: string) => {
@@ -506,7 +550,27 @@ export default function DraftDetailPage() {
                   />
                 )}
 
-                {/* Post-vote continue chat turns */}
+                {/* Post-vote chat turns from database */}
+                {postVoteTurns.map((turn) => (
+                  <div key={`db-${turn.turn_index}`} className="space-y-4">
+                    <div className="flex justify-end">
+                      <div className="max-w-[85%] rounded-2xl bg-surface-elevated px-4 py-3 text-text-primary">
+                        <div className="prose prose-sm prose-invert max-w-none">
+                          <MarkdownRenderer>{turn.user_message}</MarkdownRenderer>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex justify-start">
+                      <div className="max-w-[85%] rounded-xl text-text-secondary">
+                        <div className="prose prose-sm prose-invert max-w-none">
+                          <MarkdownRenderer>{turn.assistant_message}</MarkdownRenderer>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Post-vote continue chat turns (current session, optimistic updates) */}
                 {newTurns.map((turn) => (
                   <div key={turn.turn_index} className="space-y-4">
                     <div className="flex justify-end">
