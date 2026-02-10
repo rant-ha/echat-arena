@@ -2781,6 +2781,48 @@ async def _fetch_post_vote_turns_supabase(vote_id: str) -> List[Dict[str, Any]]:
         return []
 
 
+async def _fetch_vote_record(vote_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch a vote record by vote_id for pre-vote conversation data.
+
+    Args:
+        vote_id: UUID of the vote record
+
+    Returns:
+        Vote record dict or None if not found
+    """
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+
+    url = f"{SUPABASE_URL}/rest/v1/votes"
+    headers = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Accept": "application/json",
+    }
+
+    params = {
+        "id": f"eq.{vote_id}",
+        "select": "id,prompt,reply_a,reply_b,conversation_history,model_config,user_vote,model_a,model_b",
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=headers, params=params, timeout=REQUEST_TIMEOUT)
+            if resp.status_code >= 400:
+                return None
+            rows = resp.json()
+            return rows[0] if rows else None
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        log_error(
+            error_type="vote_record_fetch_exception",
+            context={"vote_id": vote_id},
+            exc=exc,
+        )
+        return None
+
+
 async def _run_archive_once() -> Dict[str, Any]:
     rows = await _fetch_all_votes_from_supabase()
     csv_fileobj = _votes_to_csv_fileobj(rows)
@@ -4956,6 +4998,7 @@ async def get_post_vote_chat_history(session_id: str) -> JSONResponse:
             "type": "history",
             "vote_id": "uuid",
             "winner": "left" | "right",
+            "winner_side": "left" | "right",
             "turns": [
                 {
                     "turn_index": 1,
@@ -4963,7 +5006,14 @@ async def get_post_vote_chat_history(session_id: str) -> JSONResponse:
                     "assistant_message": "...",
                     "created_at": "..."
                 }
-            ]
+            ],
+            "conversation": {
+                "prompt": "...",
+                "reply_a": "...",
+                "reply_b": "...",
+                "conversation_history": [...],
+                "model_config": {...}
+            } | null
         }
     }
     """
@@ -5006,11 +5056,22 @@ async def get_post_vote_chat_history(session_id: str) -> JSONResponse:
     ]
     
     # Phase 8.2: Add type field for consistent response structure
+    # Fetch vote record for pre-vote conversation data
+    vote_record = await _fetch_vote_record(vote_id) if vote_id else None
+
     return _response({
         "type": "history",
         "vote_id": vote_id,
         "winner": winner,
-        "turns": formatted_turns
+        "winner_side": winner,
+        "turns": formatted_turns,
+        "conversation": {
+            "prompt": vote_record.get("prompt"),
+            "reply_a": vote_record.get("reply_a"),
+            "reply_b": vote_record.get("reply_b"),
+            "conversation_history": vote_record.get("conversation_history", []),
+            "model_config": vote_record.get("model_config"),
+        } if vote_record else None,
     })
 
 

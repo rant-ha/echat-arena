@@ -350,6 +350,19 @@ export default function BattlePage() {
         if (data.turns && Array.isArray(data.turns)) {
           setPostVoteTurns(data.turns);
         }
+        // Restore pre-vote conversation so ConversationTurnBlock renders
+        if (data.conversation) {
+          const conv = data.conversation;
+          const history = conv.conversation_history?.length > 0
+            ? conv.conversation_history
+            : conv.prompt
+              ? [{ turn: 1, user: conv.prompt, reply_a: conv.reply_a || "", reply_b: conv.reply_b || "" }]
+              : [];
+          if (history.length > 0) {
+            setConversationHistory(history);
+            setPrompt(conv.prompt || "");
+          }
+        }
       } catch (err) {
         console.warn("Failed to fetch post-vote chat history:", err);
       } finally {

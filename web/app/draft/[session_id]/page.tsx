@@ -159,9 +159,8 @@ export default function DraftDetailPage() {
         if (!cancelled) {
           if (data.ok && data.draft) {
             setDraft(data.draft);
-          } else {
-            setError(data.error || "草稿不存在或已被删除");
           }
+          // Don't set error for missing draft - post-vote history may reconstruct it
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -195,11 +194,30 @@ export default function DraftDetailPage() {
           setPostVoteTurns(data.turns);
           // 恢复投票状态
           setIsVoted(true);
-          if (data.winner_side === "left" || data.winner_side === "right") {
-            setWinnerSide(data.winner_side);
+          const ws = data.winner_side || data.winner;
+          if (ws === "left" || ws === "right") {
+            setWinnerSide(ws);
           }
           if (data.vote_id) {
             setVoteId(data.vote_id);
+          }
+          // If draft was deleted (after voting), reconstruct from conversation data
+          if (!draft && data.conversation) {
+            const conv = data.conversation;
+            setDraft({
+              id: "",
+              session_id: session_id as string,
+              created_at: "",
+              updated_at: "",
+              prompt: conv.prompt || "",
+              reply_a: conv.reply_a || "",
+              reply_b: conv.reply_b || "",
+              model_a: conv.model_a || "",
+              model_b: conv.model_b || "",
+              conversation_history: conv.conversation_history || [],
+              model_config: conv.model_config || {},
+              turn_count: conv.conversation_history?.length || 1,
+            });
           }
         }
       } catch (err) {
@@ -210,7 +228,7 @@ export default function DraftDetailPage() {
     };
 
     fetchPostVoteHistory();
-  }, [session_id, historyFetched, isStreaming]);
+  }, [session_id, historyFetched, isStreaming, draft]);
 
   // Vote handler
   const handleVote = useCallback(async (choice: "left" | "right" | "tie" | "both_bad") => {
