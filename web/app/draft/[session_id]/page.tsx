@@ -9,9 +9,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { ConversationTurnBlock } from "@/components/ConversationTurnBlock";
 import { PromptInput } from "@/components/PromptInput";
 import { ModelSelector } from "@/components/ModelSelector";
-import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { useBattleStream } from "@/hooks/useBattleStream";
-import { ThinkingIndicator } from "@/components/ThinkingIndicator";
 
 type ModelConfig = {
   left?: { arm?: string; model_id?: string };
@@ -61,28 +59,7 @@ export default function DraftDetailPage() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
 
-  const [isVoted, setIsVoted] = useState(false);
-  const [winnerSide, setWinnerSide] = useState<"left" | "right" | null>(null);
-  const [voteId, setVoteId] = useState<string | null>(null);
   const [isVoting, setIsVoting] = useState(false);
-
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [currentReply, setCurrentReply] = useState("");
-  // 数据库加载的 post-vote turns
-  const [postVoteTurns, setPostVoteTurns] = useState<{
-    turn_index: number;
-    user_message: string;
-    assistant_message: string;
-    created_at: string;
-  }[]>([]);
-  // 当前会话新增的 turns（乐观更新）
-  const [newTurns, setNewTurns] = useState<{
-    turn_index: number;
-    user_message: string;
-    assistant_message: string;
-    created_at: string;
-  }[]>([]);
-  const [historyFetched, setHistoryFetched] = useState(false);
 
   // Pre-vote battle state
   const [currentTurn, setCurrentTurn] = useState(0);
@@ -105,6 +82,12 @@ export default function DraftDetailPage() {
   } = useBattleStream({
     onTurnUpdate: (turn) => setCurrentTurn(turn),
   });
+
+  // Post-vote local state (redirect-only, no inline chat)
+  const [voteId, setVoteId] = useState<string | null>(null);
+  const [winnerSide, setWinnerSide] = useState<"left" | "right" | null>(null);
+  const [pendingRedirect, setPendingRedirect] = useState(false);
+  const isVoted = !!voteId;  // pendingRedirect does NOT affect reveal/header
 
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
@@ -151,6 +134,11 @@ export default function DraftDetailPage() {
     async function fetchDraft() {
       setLoading(true);
       setError(null);
+      // Clear stale state to prevent cross-session contamination
+      setDraft(null);
+      setVoteId(null);
+      setWinnerSide(null);
+      setPendingRedirect(false);
 
       try {
         const res = await fetch(`/api/proxy/api/arena/draft/${session_id}`);
@@ -159,8 +147,13 @@ export default function DraftDetailPage() {
         if (!cancelled) {
           if (data.ok && data.draft) {
             setDraft(data.draft);
+          } else if (res.status === 404 && data.vote_id) {
+            // Exact match: only 404 + vote_id enters "voted/can redirect" branch
+            setVoteId(data.vote_id);
+          } else if (!data.ok) {
+            // Real errors (500/401/other 4xx without vote_id) → error UI
+            setError(data.error || "加载失败");
           }
-          // Don't set error for missing draft - post-vote history may reconstruct it
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -176,60 +169,6 @@ export default function DraftDetailPage() {
     };
   }, [session_id]);
 
-  // Fetch post-vote chat history on page load
-  useEffect(() => {
-    if (!session_id || historyFetched || isStreaming) return;
-
-    const fetchPostVoteHistory = async () => {
-      try {
-        const res = await fetch(
-          `/api/proxy/api/arena/chat/history?session_id=${session_id}`
-        );
-        if (!res.ok) return;
-
-        const json = await res.json();
-        const data = json?.data || json;
-
-        if (data.turns && Array.isArray(data.turns) && data.turns.length > 0) {
-          setPostVoteTurns(data.turns);
-          // 恢复投票状态
-          setIsVoted(true);
-          const ws = data.winner_side || data.winner;
-          if (ws === "left" || ws === "right") {
-            setWinnerSide(ws);
-          }
-          if (data.vote_id) {
-            setVoteId(data.vote_id);
-          }
-          // If draft was deleted (after voting), reconstruct from conversation data
-          if (!draft && data.conversation) {
-            const conv = data.conversation;
-            setDraft({
-              id: "",
-              session_id: session_id as string,
-              created_at: "",
-              updated_at: "",
-              prompt: conv.prompt || "",
-              reply_a: conv.reply_a || "",
-              reply_b: conv.reply_b || "",
-              model_a: conv.model_a || "",
-              model_b: conv.model_b || "",
-              conversation_history: conv.conversation_history || [],
-              model_config: conv.model_config || {},
-              turn_count: conv.conversation_history?.length || 1,
-            });
-          }
-        }
-      } catch (err) {
-        console.warn("Failed to fetch post-vote chat history:", err);
-      } finally {
-        setHistoryFetched(true);
-      }
-    };
-
-    fetchPostVoteHistory();
-  }, [session_id, historyFetched, isStreaming, draft]);
-
   // Vote handler
   const handleVote = useCallback(async (choice: "left" | "right" | "tie" | "both_bad") => {
     if (!draft || !userId || isVoting) return;
@@ -237,14 +176,12 @@ export default function DraftDetailPage() {
     setIsVoting(true);
 
     try {
-      // Convert position-based choice to arm-based vote
       let voteChoice: string;
       if (choice === "tie") {
         voteChoice = "tie";
       } else if (choice === "both_bad") {
         voteChoice = "both_bad";
       } else {
-        // Determine which arm is on which side
         const leftArm = draft.model_config?.left?.arm || "baseline";
         const isLeftBaseline = leftArm === "baseline";
 
@@ -255,7 +192,6 @@ export default function DraftDetailPage() {
         }
       }
 
-      // Use the dedicated draft vote endpoint (handles expired sessions)
       const res = await fetch(`/api/proxy/api/arena/draft/${draft.session_id}/vote`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -269,19 +205,12 @@ export default function DraftDetailPage() {
       const data = await res.json();
 
       if (data.ok) {
-        setIsVoted(true);
-        setVoteId(data.vote_id);
-
-        // Use winner_side from backend response
-        if (data.winner_side === "left" || data.winner_side === "right") {
+        if (data.vote_id && (data.winner_side === "left" || data.winner_side === "right")) {
+          setVoteId(data.vote_id);
           setWinnerSide(data.winner_side);
-        }
-
-        // Redirect to chat page after a short delay
-        if (data.vote_id && data.winner_side) {
-          // Stay on page to allow continue chat
         } else {
-          // For tie/both_bad, redirect to history
+          // tie/both_bad: set pendingRedirect to prevent double-click
+          setPendingRedirect(true);
           setTimeout(() => {
             router.push("/history");
           }, 1500);
@@ -297,70 +226,6 @@ export default function DraftDetailPage() {
     }
   }, [draft, userId, userEmail, isVoting, router]);
 
-  // Continue chat handler
-  const handleContinueChat = useCallback(async (message: string) => {
-    if (!draft?.session_id || isStreaming || !winnerSide) return;
-
-    setIsStreaming(true);
-    setCurrentReply("");
-
-    try {
-      const res = await fetch("/api/proxy/api/arena/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: draft.session_id,
-          vote_id: voteId || undefined,
-          user_message: message,
-        }),
-      });
-
-      if (!res.body) throw new Error("No response body");
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let fullReply = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.trim() || !line.startsWith("data:")) continue;
-          const data = line.slice(5).trim();
-          if (data === "[DONE]") continue;
-
-          try {
-            const json = JSON.parse(data);
-            if (json.delta) {
-              fullReply += json.delta;
-              setCurrentReply(fullReply);
-            }
-            if (json.type === "finish" || json.finish) {
-              // 乐观更新：先用本地数据立即更新 UI
-              setNewTurns(prev => [...prev, {
-                turn_index: postVoteTurns.length + prev.length + 1,
-                user_message: message,
-                assistant_message: fullReply,
-                created_at: new Date().toISOString(),
-              }]);
-              setCurrentReply("");
-            }
-          } catch {}
-        }
-      }
-    } catch (err) {
-      console.error("Continue chat error:", err);
-    } finally {
-      setIsStreaming(false);
-    }
-  }, [draft?.session_id, isStreaming, winnerSide, postVoteTurns.length]);
-
   // Pre-vote continue conversation (dual model battle)
   const handlePreVoteContinue = useCallback(async (message: string) => {
     if (!draft?.session_id || battleStatus === "streaming") return;
@@ -373,7 +238,6 @@ export default function DraftDetailPage() {
   const saveDraftUpdate = useCallback(async (newTurn: ConversationHistoryTurn, allTurns: ConversationHistoryTurn[]) => {
     if (!draft?.session_id) return;
     try {
-      // Use passed allTurns to avoid stale closure
       await fetch("/api/proxy/api/arena/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -391,8 +255,6 @@ export default function DraftDetailPage() {
           model_config: draft.model_config,
         }),
       });
-      // Do NOT call setDraft - avoid duplicate rendering
-      // newBattleTurns handles display, database handles persistence
     } catch (err) { console.warn("Failed to save draft update:", err); }
   }, [draft?.session_id, draft?.prompt, draft?.model_a, draft?.model_b, draft?.model_config, userId, userEmail]);
 
@@ -406,13 +268,11 @@ export default function DraftDetailPage() {
         reply_b: rightText,
       };
 
-      // Build complete history including new turn (avoid stale closure)
       const allTurns = [...(draft?.conversation_history || []), ...newBattleTurns, newTurn];
 
       setNewBattleTurns(prev => [...prev, newTurn]);
       setCurrentPrompt("");
 
-      // Pass complete history to save function
       if (draft?.session_id) saveDraftUpdate(newTurn, allTurns);
     }
   }, [battleStatus, leftText, rightText, currentPrompt, draft?.conversation_history, newBattleTurns, draft?.session_id, saveDraftUpdate]);
@@ -508,30 +368,27 @@ export default function DraftDetailPage() {
               </div>
             ) : draft ? (
               <div className="space-y-6">
-                {/* Render conversation turns */}
-                {(() => {
-                  return (draft.conversation_history && draft.conversation_history.length > 0
-                    ? draft.conversation_history
-                    : [{ turn: 1, user: draft.prompt, reply_a: draft.reply_a, reply_b: draft.reply_b }]
-                  ).map((turn, idx, arr) => (
-                    <ConversationTurnBlock
-                      key={turn.turn}
-                      turnIndex={turn.turn}
-                      userMessage={turn.user}
-                      leftContent={turn.reply_a}
-                      rightContent={turn.reply_b}
-                      leftAnonymousLabel="Model A"
-                      rightAnonymousLabel="Model B"
-                      leftIsStreaming={false}
-                      rightIsStreaming={false}
-                      isRevealed={isVoted}
-                      leftIsWinner={winnerSide === "left"}
-                      rightIsWinner={winnerSide === "right"}
-                      winnerSide={winnerSide}
-                      isLastTurn={idx === arr.length - 1}
-                    />
-                  ));
-                })()}
+                {/* Pre-vote conversation turns */}
+                {(draft.conversation_history && draft.conversation_history.length > 0
+                  ? draft.conversation_history
+                  : [{ turn: 1, user: draft.prompt, reply_a: draft.reply_a, reply_b: draft.reply_b }]
+                ).map((turn) => (
+                  <ConversationTurnBlock
+                    key={turn.turn}
+                    turnIndex={turn.turn}
+                    userMessage={turn.user}
+                    leftContent={turn.reply_a}
+                    rightContent={turn.reply_b}
+                    leftAnonymousLabel="Model A"
+                    rightAnonymousLabel="Model B"
+                    leftIsStreaming={false}
+                    rightIsStreaming={false}
+                    isRevealed={isVoted}
+                    leftIsWinner={winnerSide === "left"}
+                    rightIsWinner={winnerSide === "right"}
+                    winnerSide={winnerSide}
+                  />
+                ))}
 
                 {/* New battle turns (pre-vote) */}
                 {newBattleTurns.map((turn) => (
@@ -549,7 +406,6 @@ export default function DraftDetailPage() {
                     leftIsWinner={winnerSide === "left"}
                     rightIsWinner={winnerSide === "right"}
                     winnerSide={winnerSide}
-                    isLastTurn={false}
                   />
                 ))}
 
@@ -565,69 +421,24 @@ export default function DraftDetailPage() {
                     leftIsStreaming={!leftDone}
                     rightIsStreaming={!rightDone}
                     isRevealed={false}
-                    isLastTurn={true}
                   />
                 )}
 
-                {/* Post-vote chat turns from database */}
-                {postVoteTurns.map((turn) => (
-                  <div key={`db-${turn.turn_index}`} className="space-y-4">
-                    <div className="flex justify-end">
-                      <div className="max-w-[85%] rounded-2xl bg-surface-elevated px-4 py-3 text-text-primary">
-                        <div className="prose prose-sm prose-invert max-w-none">
-                          <MarkdownRenderer>{turn.user_message}</MarkdownRenderer>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex justify-start">
-                      <div className="max-w-[85%] rounded-xl text-text-secondary">
-                        <div className="prose prose-sm prose-invert max-w-none">
-                          <MarkdownRenderer>{turn.assistant_message}</MarkdownRenderer>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-
-                {/* Post-vote continue chat turns (current session, optimistic updates) */}
-                {newTurns.map((turn) => (
-                  <div key={turn.turn_index} className="space-y-4">
-                    <div className="flex justify-end">
-                      <div className="max-w-[85%] rounded-2xl bg-surface-elevated px-4 py-3 text-text-primary">
-                        <div className="prose prose-sm prose-invert max-w-none">
-                          <MarkdownRenderer>{turn.user_message}</MarkdownRenderer>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex justify-start">
-                      <div className="max-w-[85%] rounded-xl text-text-secondary">
-                        <div className="prose prose-sm prose-invert max-w-none">
-                          <MarkdownRenderer>{turn.assistant_message}</MarkdownRenderer>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-
-                {/* Streaming reply */}
-                {(currentReply || isStreaming) && (
-                  <div className="flex justify-start">
-                    <div className="max-w-[85%] rounded-xl text-text-secondary">
-                      <div className="prose prose-sm prose-invert max-w-none">
-                        {currentReply ? (
-                          <>
-                            <MarkdownRenderer>{currentReply}</MarkdownRenderer>
-                            {isStreaming && (
-                              <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-interactive-accent align-middle" />
-                            )}
-                          </>
-                        ) : (
-                          <ThinkingIndicator showSkeleton={false} />
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
+              </div>
+            ) : voteId ? (
+              <div className="flex flex-col items-center justify-center py-20 space-y-4">
+                <p className="text-sm text-[var(--text-muted)]">此草稿已完成投票</p>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/chat/${voteId}`)}
+                  className={cn(
+                    "rounded-xl px-4 py-3 text-sm font-medium transition-all",
+                    "bg-surface-tertiary hover:bg-interactive-accent border border-border-strong",
+                    "text-text-secondary hover:text-white shadow-lg hover:shadow-xl"
+                  )}
+                >
+                  查看投票详情 &amp; 继续对话 →
+                </button>
               </div>
             ) : (
               <div className="rounded-xl border border-[var(--border-color)] p-5">
@@ -638,18 +449,16 @@ export default function DraftDetailPage() {
         </main>
 
         {/* Vote buttons or Continue chat input */}
-        {draft && !loading && !error && (
+        {(draft || voteId) && !loading && !error && (
           <div className="sticky bottom-0 border-t border-border-faint bg-surface-primary/95 backdrop-blur-sm px-4 py-4">
-            {!isVoted ? (
+            {!isVoted && !pendingRedirect ? (
               <div className="mx-auto max-w-3xl space-y-4">
-                {/* Pre-vote continue conversation input */}
                 <PromptInput
                   onSubmit={handlePreVoteContinue}
                   disabled={battleStatus === "streaming"}
                   placeholder="继续对话，或选择下方投票..."
                 />
 
-                {/* Vote buttons */}
                 <div className="border-t border-border-faint pt-4">
                   <p className="mb-3 text-center text-sm text-text-muted">
                     选择你认为更好的回复
@@ -658,7 +467,7 @@ export default function DraftDetailPage() {
                     <button
                       type="button"
                       onClick={() => handleVote("left")}
-                      disabled={isVoting || battleStatus === "streaming"}
+                      disabled={isVoting || battleStatus === "streaming" || pendingRedirect}
                       className={cn(
                         "rounded-xl px-4 py-3 text-sm font-medium transition-all",
                         "bg-surface-tertiary hover:bg-interactive-accent border border-border-strong",
@@ -671,7 +480,7 @@ export default function DraftDetailPage() {
                     <button
                       type="button"
                       onClick={() => handleVote("right")}
-                      disabled={isVoting || battleStatus === "streaming"}
+                      disabled={isVoting || battleStatus === "streaming" || pendingRedirect}
                       className={cn(
                         "rounded-xl px-4 py-3 text-sm font-medium transition-all",
                         "bg-surface-tertiary hover:bg-interactive-accent border border-border-strong",
@@ -684,7 +493,7 @@ export default function DraftDetailPage() {
                     <button
                       type="button"
                       onClick={() => handleVote("tie")}
-                      disabled={isVoting || battleStatus === "streaming"}
+                      disabled={isVoting || battleStatus === "streaming" || pendingRedirect}
                       className={cn(
                         "rounded-xl px-4 py-3 text-sm font-medium transition-all",
                         "bg-surface-tertiary hover:bg-surface-elevated border border-border-strong",
@@ -697,7 +506,7 @@ export default function DraftDetailPage() {
                     <button
                       type="button"
                       onClick={() => handleVote("both_bad")}
-                      disabled={isVoting || battleStatus === "streaming"}
+                      disabled={isVoting || battleStatus === "streaming" || pendingRedirect}
                       className={cn(
                         "rounded-xl px-4 py-3 text-sm font-medium transition-all",
                         "bg-surface-tertiary hover:bg-negative border border-border-strong",
@@ -715,26 +524,30 @@ export default function DraftDetailPage() {
                   )}
                 </div>
               </div>
-            ) : winnerSide ? (
-              /* Continue chat input - only if winner was selected */
-              <div className="mx-auto max-w-3xl">
-                <p className="mb-2 text-center text-xs text-[var(--text-muted)]">
-                  投票成功！你选择了 Model {winnerSide === "left" ? "A" : "B"}，现在可以继续对话
+            ) : voteId ? (
+              <div className="mx-auto max-w-3xl text-center space-y-3">
+                <p className="text-sm text-[var(--text-muted)]">
+                  投票成功！{winnerSide ? `你选择了 Model ${winnerSide === "left" ? "A" : "B"}` : ""}
                 </p>
-                <PromptInput
-                  onSubmit={handleContinueChat}
-                  disabled={isStreaming}
-                  placeholder="继续与获胜模型对话..."
-                />
+                <button
+                  type="button"
+                  onClick={() => router.push(`/chat/${voteId}`)}
+                  className={cn(
+                    "rounded-xl px-4 py-3 text-sm font-medium transition-all",
+                    "bg-surface-tertiary hover:bg-interactive-accent border border-border-strong",
+                    "text-text-secondary hover:text-white shadow-lg hover:shadow-xl"
+                  )}
+                >
+                  继续与获胜模型对话 →
+                </button>
               </div>
-            ) : (
-              /* Tie or both_bad - no continue chat */
+            ) : pendingRedirect ? (
               <div className="mx-auto max-w-2xl text-center">
                 <p className="text-sm text-[var(--text-muted)]">
                   投票成功！即将返回历史记录页面...
                 </p>
               </div>
-            )}
+            ) : null}
           </div>
         )}
       </div>

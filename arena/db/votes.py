@@ -224,7 +224,7 @@ async def _fetch_vote_record(vote_id: str) -> Optional[Dict[str, Any]]:
 
     params = {
         "id": f"eq.{vote_id}",
-        "select": "id,prompt,reply_a,reply_b,conversation_history,model_config,user_vote,model_a,model_b",
+        "select": "id,session_id,prompt,reply_a,reply_b,conversation_history,model_config,user_vote,model_a,model_b",
     }
 
     try:

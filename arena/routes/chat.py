@@ -161,15 +161,35 @@ async def get_post_vote_chat_history(session_id: str, vote_id: str = "") -> JSON
         }
     }
     """
+    def _history_response(data):
+        """Wrap _response with no-store for history endpoint."""
+        resp = _response(data)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    def _history_error(msg, status=400):
+        resp = _error(msg, status=status)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
     if not session_id or not session_id.strip():
-        return _error("session_id is required")
+        return _history_error("session_id is required")
 
     session_id = session_id.strip()
     vote_id = (vote_id or "").strip()
 
     # When vote_id is provided, use it directly for a reliable lookup
     if vote_id:
-        turns = await _fetch_post_vote_turns_supabase(vote_id)
+        # Step 1: Fetch vote record and validate session ownership
+        vote_record = await _fetch_vote_record(vote_id)
+        if not vote_record:
+            return _history_error("not found", status=404)
+        vote_session_id = str(vote_record.get("session_id") or "")
+        if vote_session_id != session_id:
+            return _history_error("not found", status=404)  # 404 not 403 — reduce enumeration surface
+
+        # Step 2: Only after validation, fetch turns
+        turns, fetch_error = await _fetch_post_vote_turns_supabase(vote_id)
         formatted_turns = [
             {
                 "turn_index": turn.get("turn_index"),
@@ -179,22 +199,21 @@ async def get_post_vote_chat_history(session_id: str, vote_id: str = "") -> JSON
             }
             for turn in turns
         ]
-        vote_record = await _fetch_vote_record(vote_id)
-        # Determine winner from vote record
-        winner = None
-        if vote_record:
-            model_config = vote_record.get("model_config") or {}
-            left_config = model_config.get("left", {})
-            user_vote = vote_record.get("user_vote")
-            is_left_baseline = left_config.get("arm") == "baseline"
-            if user_vote == "model_a":
-                winner = "left" if is_left_baseline else "right"
-            elif user_vote == "model_b":
-                winner = "right" if is_left_baseline else "left"
-            elif user_vote in ("left", "right"):
-                winner = user_vote
 
-        return _response({
+        # Step 3: Determine winner from vote record
+        winner = None
+        model_config = vote_record.get("model_config") or {}
+        left_config = model_config.get("left", {})
+        user_vote = vote_record.get("user_vote")
+        is_left_baseline = left_config.get("arm") == "baseline"
+        if user_vote == "model_a":
+            winner = "left" if is_left_baseline else "right"
+        elif user_vote == "model_b":
+            winner = "right" if is_left_baseline else "left"
+        elif user_vote in ("left", "right"):
+            winner = user_vote
+
+        resp_data = {
             "type": "history",
             "vote_id": vote_id,
             "winner": winner,
@@ -206,29 +225,32 @@ async def get_post_vote_chat_history(session_id: str, vote_id: str = "") -> JSON
                 "reply_b": vote_record.get("reply_b"),
                 "conversation_history": vote_record.get("conversation_history", []),
                 "model_config": vote_record.get("model_config"),
-            } if vote_record else None,
-        })
+            },
+        }
+        if fetch_error:
+            resp_data["error_type"] = fetch_error
+        return _history_response(resp_data)
 
     # Fallback: session-based lookup
     sess = await get_state().session_store.get(session_id)
     if not sess:
         sess = await _reconstruct_session_from_votes(session_id)
         if not sess:
-            return _error("session not found or expired", status=404)
+            return _history_error("session not found or expired", status=404)
 
     # Get vote_id and winner from session
     vote_id = sess.get("vote_id")
     winner = sess.get("winner")
 
     if not vote_id:
-        return _response({
+        return _history_response({
             "vote_id": None,
             "winner": winner,
             "turns": []
         })
 
     # Fetch post-vote turns from database
-    turns = await _fetch_post_vote_turns_supabase(vote_id)
+    turns, fetch_error = await _fetch_post_vote_turns_supabase(vote_id)
 
     # Format response
     formatted_turns = [
@@ -244,7 +266,7 @@ async def get_post_vote_chat_history(session_id: str, vote_id: str = "") -> JSON
     # Phase 8.2: Add type field for consistent response structure
     vote_record = await _fetch_vote_record(vote_id) if vote_id else None
 
-    return _response({
+    resp_data = {
         "type": "history",
         "vote_id": vote_id,
         "winner": winner,
@@ -257,4 +279,7 @@ async def get_post_vote_chat_history(session_id: str, vote_id: str = "") -> JSON
             "conversation_history": vote_record.get("conversation_history", []),
             "model_config": vote_record.get("model_config"),
         } if vote_record else None,
-    })
+    }
+    if fetch_error:
+        resp_data["error_type"] = fetch_error
+    return _history_response(resp_data)

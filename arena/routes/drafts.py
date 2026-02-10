@@ -16,7 +16,7 @@ from arena.config import (
 )
 from arena.utils import _utc_now_iso, _json_dumps, log_error
 from arena.db.helpers import _looks_like_unique_violation
-from arena.db.votes import _insert_vote_supabase, _update_vote_supabase
+from arena.db.votes import _insert_vote_supabase, _update_vote_supabase, _fetch_vote_id_by_session_id_supabase
 from arena.evaluator import _judge_with_ai
 from arena.state import get_state
 
@@ -138,7 +138,23 @@ async def get_single_draft(session_id: str) -> JSONResponse:
                 return JSONResponse({"ok": False, "error": "Database error"}, status_code=500)
             data = resp.json()
             if not data:
-                return JSONResponse({"ok": False, "error": "Draft not found"}, status_code=404)
+                # Best-effort fallback: check if session was already voted
+                fallback_vote_id = None
+                try:
+                    fallback_vote_id = await _fetch_vote_id_by_session_id_supabase(session_id)
+                except Exception:
+                    pass  # Fallback failed — degrade to normal 404
+                if fallback_vote_id:
+                    return JSONResponse(
+                        {"ok": False, "error": "Draft not found", "vote_id": fallback_vote_id},
+                        status_code=404,
+                        headers={"Cache-Control": "no-store"},
+                    )
+                return JSONResponse(
+                    {"ok": False, "error": "Draft not found"},
+                    status_code=404,
+                    headers={"Cache-Control": "no-store"},
+                )
 
         return JSONResponse({"ok": True, "draft": data[0]})
     except Exception as e:
