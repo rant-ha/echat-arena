@@ -1,17 +1,11 @@
-# web/hooks - Custom React Hooks
+<!-- Parent: ../AGENTS.md -->
+<!-- Generated: 2026-02-10 -->
 
-**Parent:** `../AGENTS.md`
-**Type:** Custom React Hooks (TypeScript)
-**Version:** 0.0.1
-**Last Updated:** 2026-01-23
-
----
+# web/hooks/ - Custom React Hooks
 
 ## Purpose
 
-The `hooks/` directory contains custom React hooks that encapsulate reusable stateful logic for the echat-arena frontend. These hooks handle complex features like Server-Sent Events (SSE) streaming, battle state management, and API interactions.
-
-**Key Responsibility:** Provide composable, testable logic for features like real-time streaming, error handling, and conversation state management.
+Custom React hooks encapsulating reusable stateful logic for the eChat Arena frontend. Handles Server-Sent Events (SSE) streaming for real-time battle responses, conversation state management, and admin authentication.
 
 ---
 
@@ -19,21 +13,17 @@ The `hooks/` directory contains custom React hooks that encapsulate reusable sta
 
 ```
 hooks/
-└── useBattleStream.ts       # SSE streaming for battle endpoint with retry logic
+├── AGENTS.md               # This file
+├── useBattleStream.ts      # SSE streaming hook with retry logic
+└── useAdminAuth.ts         # Admin authentication hook
 ```
 
----
+## Key Files
 
-## Core Technologies
-
-| Technology | Purpose |
-|-----------|---------|
-| React 18 Hooks | State management and side effects |
-| TypeScript | Type-safe hook interfaces |
-| Fetch API | HTTP requests and streaming |
-| SSE (Server-Sent Events) | Real-time bidirectional communication |
-
----
+| File | Description |
+|------|-------------|
+| `useBattleStream.ts` | SSE streaming for `/api/arena/battle` and `/api/arena/continue` endpoints; state accumulation; retry with exponential backoff |
+| `useAdminAuth.ts` | Admin session management via `admin-token` header; separate from user Supabase auth |
 
 ## Hooks Overview
 

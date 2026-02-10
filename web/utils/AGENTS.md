@@ -1,17 +1,11 @@
-# web/utils - Utility Functions & Service Clients
+<!-- Parent: ../AGENTS.md -->
+<!-- Generated: 2026-02-10 -->
 
-**Parent:** `../AGENTS.md`
-**Type:** TypeScript Utilities and Service Clients
-**Version:** 0.0.1
-**Last Updated:** 2026-01-23
-
----
+# web/utils/ - Utility Functions & Service Clients
 
 ## Purpose
 
-The `utils/` directory contains utility functions, service clients, and helper modules that provide common functionality across the echat-arena frontend. This includes Supabase authentication clients for both browser and server environments.
-
-**Key Responsibility:** Provide reusable, centralized utilities for authentication, database access, and common operations.
+Utility functions and service clients providing shared functionality across the eChat Arena frontend. Includes Supabase authentication clients for both browser and server environments with session management via cookies.
 
 ---
 
@@ -19,10 +13,24 @@ The `utils/` directory contains utility functions, service clients, and helper m
 
 ```
 utils/
+├── AGENTS.md
 └── supabase/
-    ├── client.ts                # Supabase client for browser (anonymous key)
-    └── server.ts                # Supabase client for server (service role key)
+    ├── client.ts       # Browser Supabase client (anonymous key)
+    └── server.ts       # Server Supabase client (session via cookies)
 ```
+
+## Key Files
+
+| File | Description |
+|------|-------------|
+| `supabase/client.ts` | Browser Supabase client factory using anonymous key; enforces RLS policies |
+| `supabase/server.ts` | Server Supabase client factory; manages session via Next.js cookies |
+
+## Subdirectories
+
+| Directory | Purpose |
+|-----------|---------|
+| `supabase/` | Supabase client factories for browser and server environments (see `supabase/AGENTS.md` if created) |
 
 ---
 
@@ -33,8 +41,6 @@ utils/
 | Supabase | PostgreSQL database and authentication |
 | TypeScript | Type-safe utility functions |
 | Next.js | Server vs. client environment detection |
-
----
 
 ## Subdirectories & Responsibilities
 
