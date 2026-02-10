@@ -66,7 +66,7 @@ async def build_post_vote_context(
     post_vote_turns: List[Dict[str, Any]] = []
     try:
         fetch_timeout_sec = float(os.environ.get("ARENA_POST_VOTE_HISTORY_TIMEOUT_SEC", "5"))
-        post_vote_turns = await asyncio.wait_for(
+        post_vote_turns, _fetch_err = await asyncio.wait_for(
             _fetch_post_vote_turns_supabase(vote_id),
             timeout=fetch_timeout_sec,
         )

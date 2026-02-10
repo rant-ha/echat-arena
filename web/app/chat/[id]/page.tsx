@@ -9,6 +9,8 @@ import { Sidebar } from "@/components/Sidebar";
 import { ConversationTurnBlock } from "@/components/ConversationTurnBlock";
 import { PromptInput } from "@/components/PromptInput";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+import { ThinkingIndicator } from "@/components/ThinkingIndicator";
+import { usePostVoteChat } from "@/hooks/usePostVoteChat";
 
 type VoteChoice = "model_a" | "model_b" | "tie" | "both_bad" | string;
 
@@ -39,34 +41,21 @@ type VoteRow = {
   turn_count?: number;
 };
 
-type PostVoteTurn = {
-  id: string;
-  turn_index: number;
-  user_message: string;
-  assistant_message: string;
-  winner_side: string;
-  created_at: string;
-};
-
 function formatTime(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString();
 }
 
-/**
- * Convert arm-based vote (model_a=baseline, model_b=strategy) to position (left/right).
- * model_config.left.arm tells us which arm is on the left side.
- */
 function getVotePosition(vote: VoteChoice | null, modelConfig?: ModelConfig | null): "left" | "right" | null {
   if (!vote || vote === "tie" || vote === "both_bad") return null;
 
   const leftArm = modelConfig?.left?.arm || "baseline";
   const isLeftBaseline = leftArm === "baseline";
 
-  if (vote === "model_a") {  // voted for baseline
+  if (vote === "model_a") {
     return isLeftBaseline ? "left" : "right";
-  } else if (vote === "model_b") {  // voted for strategy
+  } else if (vote === "model_b") {
     return isLeftBaseline ? "right" : "left";
   }
   return null;
@@ -78,27 +67,31 @@ export default function ChatDetailPage() {
   const id = params?.id as string;
 
   const [vote, setVote] = useState<VoteRow | null>(null);
-  const [postTurns, setPostTurns] = useState<PostVoteTurn[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
 
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [currentReply, setCurrentReply] = useState("");
-  const [newTurns, setNewTurns] = useState<{turn_index: number; user_message: string; assistant_message: string; created_at: string}[]>([]);
-  const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
-
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
 
-  // 只有选择了 winner（model_a 或 model_b）才能继续对话
   const canContinue = vote?.user_vote === "model_a" || vote?.user_vote === "model_b";
   const winnerPosition = vote ? getVotePosition(vote.user_vote, vote.model_config) : null;
 
+  // ===== Post-vote chat via shared Hook =====
+  const {
+    turns: postTurns,
+    currentReply,
+    isChatting: isStreaming,
+    pendingMessage: pendingUserMessage,
+    sendMessage: handleContinueChat,
+  } = usePostVoteChat({
+    sessionId: vote?.session_id || null,
+    initialVoteId: id,
+  });
+
   useEffect(() => {
-    // Fetch user info for sidebar
     const supabase = createSupabaseBrowserClient();
     supabase.auth.getUser().then(({ data }) => {
       if (data.user?.email) setUserEmail(data.user.email);
@@ -125,7 +118,6 @@ export default function ChatDetailPage() {
         if (authErr) throw authErr;
         if (!user) throw new Error("未登录");
 
-        // 查询包含多轮对话历史和 model_config
         const { data, error: dbErr } = await supabase
           .from("votes")
           .select("id, created_at, session_id, prompt, reply_a, reply_b, user_vote, model_config, conversation_history, turn_count")
@@ -137,19 +129,6 @@ export default function ChatDetailPage() {
 
         if (!cancelled) {
           setVote(data as VoteRow);
-
-          // Fetch post-vote turns
-          const { data: turnsData, error: turnsErr } = await supabase
-            .from("post_vote_turns")
-            .select("*")
-            .eq("vote_id", id)
-            .order("turn_index", { ascending: true });
-
-          if (turnsErr) {
-            console.error("Error fetching post turns:", turnsErr);
-          } else if (turnsData) {
-            setPostTurns(turnsData as PostVoteTurn[]);
-          }
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -164,71 +143,6 @@ export default function ChatDetailPage() {
       cancelled = true;
     };
   }, [id]);
-
-  const handleContinueChat = useCallback(async (message: string) => {
-    if (!vote?.session_id || isStreaming || !canContinue) return;
-
-    setIsStreaming(true);
-    setCurrentReply("");
-    setPendingUserMessage(message);  // 立即保存用户消息
-
-    try {
-      const res = await fetch("/api/proxy/api/arena/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: vote.session_id,
-          vote_id: id,
-          user_message: message,
-        }),
-      });
-
-      if (!res.body) throw new Error("No response body");
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let fullReply = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.trim() || !line.startsWith("data:")) continue;
-          const data = line.slice(5).trim();
-          if (data === "[DONE]") continue;
-
-          try {
-            const json = JSON.parse(data);
-            if (json.delta) {
-              fullReply += json.delta;
-              setCurrentReply(fullReply);
-            }
-            if (json.type === "finish" || json.finish) {
-              // 乐观更新：先用本地数据立即更新 UI
-              setNewTurns(prev => [...prev, {
-                turn_index: postTurns.length + prev.length + 1,
-                user_message: message,
-                assistant_message: fullReply,
-                created_at: new Date().toISOString(),
-              }]);
-              setCurrentReply("");
-              setPendingUserMessage(null);
-            }
-          } catch {}
-        }
-      }
-    } catch (err) {
-      console.error("Continue chat error:", err);
-    } finally {
-      setIsStreaming(false);
-    }
-  }, [vote?.session_id, isStreaming, canContinue, postTurns.length]);
 
   return (
     <div className="flex min-h-screen bg-[var(--main-bg)] text-[var(--text-primary)]">
@@ -310,40 +224,43 @@ export default function ChatDetailPage() {
               </div>
             ) : vote ? (
               <div className="space-y-6">
-                {/* 渲染所有对话轮次 */}
-                {(() => {
-                  return (vote.conversation_history && vote.conversation_history.length > 0
-                    ? vote.conversation_history
-                    : [{ turn: 1, user: vote.prompt, reply_a: vote.reply_a, reply_b: vote.reply_b }]
-                  ).map((turn, idx, arr) => (
-                    <ConversationTurnBlock
-                      key={turn.turn}
-                      turnIndex={turn.turn}
-                      userMessage={turn.user}
-                      leftContent={turn.reply_a}
-                      rightContent={turn.reply_b}
-                      leftAnonymousLabel="Model A"
-                      rightAnonymousLabel="Model B"
-                      leftIsStreaming={false}
-                      rightIsStreaming={false}
-                      isRevealed={true}
-                      leftIsWinner={winnerPosition === "left"}
-                      rightIsWinner={winnerPosition === "right"}
-                      winnerSide={winnerPosition}
-                      isLastTurn={idx === arr.length - 1}
-                      postVoteTurns={idx === arr.length - 1 ? postTurns.map(t => ({
-                      turn_index: t.turn_index,
-                      user_message: t.user_message,
-                      assistant_message: t.assistant_message,
-                      created_at: t.created_at,
-                    })) : undefined}
-                    />
-                  ));
-                })()}
+                {/* Pre-vote conversation turns */}
+                {(vote.conversation_history && vote.conversation_history.length > 0
+                  ? vote.conversation_history
+                  : [{ turn: 1, user: vote.prompt, reply_a: vote.reply_a, reply_b: vote.reply_b }]
+                ).map((turn) => (
+                  <ConversationTurnBlock
+                    key={turn.turn}
+                    turnIndex={turn.turn}
+                    userMessage={turn.user}
+                    leftContent={turn.reply_a}
+                    rightContent={turn.reply_b}
+                    leftAnonymousLabel="Model A"
+                    rightAnonymousLabel="Model B"
+                    leftIsStreaming={false}
+                    rightIsStreaming={false}
+                    isRevealed={true}
+                    leftIsWinner={winnerPosition === "left"}
+                    rightIsWinner={winnerPosition === "right"}
+                    winnerSide={winnerPosition}
+                  />
+                ))}
 
-                {/* 新的继续对话 */}
-                {newTurns.map((turn) => (
-                  <div key={turn.turn_index} className="space-y-4">
+                {/* ===== Post-vote chat — FULL WIDTH ===== */}
+                {postTurns.length > 0 && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3 py-2">
+                      <div className="flex-1 h-px bg-border-faint" />
+                      <span className="text-xs font-medium text-interactive-accent uppercase tracking-wider">
+                        Continued Chat
+                      </span>
+                      <div className="flex-1 h-px bg-border-faint" />
+                    </div>
+                  </div>
+                )}
+
+                {postTurns.map((turn) => (
+                  <div key={`pv-${turn.turn_index}`} className="space-y-4">
                     <div className="flex justify-end">
                       <div className="max-w-[85%] rounded-2xl bg-surface-elevated px-4 py-3 text-text-primary">
                         <div className="prose prose-sm prose-invert max-w-none">
@@ -361,26 +278,32 @@ export default function ChatDetailPage() {
                   </div>
                 ))}
 
-                {/* 流式对话中的用户消息 */}
+                {/* Pending user message */}
                 {pendingUserMessage && (
-                  <div className="space-y-4">
-                    <div className="flex justify-end">
-                      <div className="max-w-[85%] rounded-2xl bg-surface-elevated px-4 py-3 text-text-primary">
-                        <div className="prose prose-sm prose-invert max-w-none">
-                          <MarkdownRenderer>{pendingUserMessage}</MarkdownRenderer>
-                        </div>
+                  <div className="flex justify-end">
+                    <div className="max-w-[85%] rounded-2xl bg-surface-elevated px-4 py-3 text-text-primary">
+                      <div className="prose prose-sm prose-invert max-w-none">
+                        <MarkdownRenderer>{pendingUserMessage}</MarkdownRenderer>
                       </div>
                     </div>
                   </div>
                 )}
 
-                {/* 流式回复 */}
-                {currentReply && (
+                {/* Streaming reply */}
+                {(currentReply || isStreaming) && (
                   <div className="flex justify-start">
                     <div className="max-w-[85%] rounded-xl text-text-secondary">
                       <div className="prose prose-sm prose-invert max-w-none">
-                        <MarkdownRenderer>{currentReply}</MarkdownRenderer>
-                        <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-interactive-accent align-middle" />
+                        {currentReply ? (
+                          <>
+                            <MarkdownRenderer>{currentReply}</MarkdownRenderer>
+                            {isStreaming && (
+                              <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-interactive-accent align-middle" />
+                            )}
+                          </>
+                        ) : (
+                          <ThinkingIndicator showSkeleton={false} />
+                        )}
                       </div>
                     </div>
                   </div>
@@ -394,7 +317,7 @@ export default function ChatDetailPage() {
           </div>
         </main>
 
-        {/* 继续对话输入框 */}
+        {/* Continue chat input */}
         {canContinue && (
           <div className="sticky bottom-0 border-t border-border-faint bg-surface-primary/95 backdrop-blur-sm px-4 py-4">
             <PromptInput

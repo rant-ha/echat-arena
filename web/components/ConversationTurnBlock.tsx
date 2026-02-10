@@ -4,14 +4,6 @@ import { cn } from "./ui";
 import { UserMessageBubble } from "./UserMessageBubble";
 import { AIResponseCard, ResponseCardReveal, AiJudgeScores } from "./AIResponseCard";
 
-// Post-vote turn type
-interface PostVoteTurn {
-  turn_index: number;
-  user_message: string;
-  assistant_message: string;
-  created_at: string;
-}
-
 interface ConversationTurnBlockProps {
   turnIndex: number;
   userMessage: string;
@@ -39,14 +31,6 @@ interface ConversationTurnBlockProps {
   // Winner side for styling loser
   winnerSide?: "left" | "right" | null;
 
-  // Post-vote (only for final turn of winner)
-  postVoteTurns?: PostVoteTurn[];
-  postVoteCurrentReply?: string;
-  isPostVoteChatting?: boolean;
-
-  // Is this the last/current turn? (show post-vote chat only on last turn)
-  isLastTurn?: boolean;
-
   className?: string;
 }
 
@@ -68,10 +52,6 @@ export function ConversationTurnBlock({
   isRevealed,
   judgeLoading,
   winnerSide,
-  postVoteTurns,
-  postVoteCurrentReply,
-  isPostVoteChatting,
-  isLastTurn = false,
   className,
 }: ConversationTurnBlockProps) {
   return (
@@ -93,9 +73,6 @@ export function ConversationTurnBlock({
             isLoser={isRevealed && winnerSide === "right"}
             judgeScores={leftJudgeScores}
             judgeLoading={judgeLoading}
-            postVoteTurns={isLastTurn && winnerSide === "left" ? postVoteTurns : undefined}
-            postVoteCurrentReply={isLastTurn && winnerSide === "left" ? postVoteCurrentReply : undefined}
-            isPostVoteChatting={isLastTurn && winnerSide === "left" ? isPostVoteChatting : false}
           />
         </div>
 
@@ -111,9 +88,6 @@ export function ConversationTurnBlock({
             isLoser={isRevealed && winnerSide === "left"}
             judgeScores={rightJudgeScores}
             judgeLoading={judgeLoading}
-            postVoteTurns={isLastTurn && winnerSide === "right" ? postVoteTurns : undefined}
-            postVoteCurrentReply={isLastTurn && winnerSide === "right" ? postVoteCurrentReply : undefined}
-            isPostVoteChatting={isLastTurn && winnerSide === "right" ? isPostVoteChatting : false}
           />
         </div>
       </div>

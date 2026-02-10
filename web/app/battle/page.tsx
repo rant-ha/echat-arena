@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { Swords, RotateCcw, Menu, X } from "lucide-react";
 import { useBattleStream } from "@/hooks/useBattleStream";
+import { usePostVoteChat } from "@/hooks/usePostVoteChat";
 import { ConversationTurnBlock } from "@/components/ConversationTurnBlock";
 import type { AiJudgeScores } from "@/components/AIResponseCard";
 import { VoteButtons, VoteChoice } from "@/components/VoteButtons";
@@ -12,6 +13,8 @@ import { useRef } from "react";
 import { PromptInput } from "@/components/PromptInput";
 import { Sidebar } from "@/components/Sidebar";
 import { ModelSelector } from "@/components/ModelSelector";
+import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+import { ThinkingIndicator } from "@/components/ThinkingIndicator";
 import { cn } from "@/components/ui";
 import { createSupabaseBrowserClient } from "@/utils/supabase/client";
 
@@ -31,14 +34,6 @@ interface VoteState {
   isRevealed: boolean;
   error: string | null;
   result: VoteResult | null;
-}
-
-// 投票后对话的轮次类型
-interface PostVoteTurn {
-  turn_index: number;
-  user_message: string;
-  assistant_message: string;
-  created_at: string;
 }
 
 function safeJsonParse(text: string): any {
@@ -70,14 +65,6 @@ export default function BattlePage() {
 
   const [bootstrappedFromQuery, setBootstrappedFromQuery] = useState(false);
 
-  // 投票后对话状态
-  const [winnerSide, setWinnerSide] = useState<'left' | 'right' | null>(null);
-  const [postVoteTurns, setPostVoteTurns] = useState<PostVoteTurn[]>([]);
-  const [postVoteCurrentReply, setPostVoteCurrentReply] = useState("");
-  const [isPostVoteChatting, setIsPostVoteChatting] = useState(false);
-  const [restoredSessionId, setRestoredSessionId] = useState<string | null>(null);
-  const [restoredVoteId, setRestoredVoteId] = useState<string | null>(null);
-
   // M-06: Memoize callbacks to prevent unnecessary re-renders
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
@@ -88,33 +75,6 @@ export default function BattlePage() {
      supabase.auth.getUser().then(({ data }) => {
        if (data.user?.email) setUserEmail(data.user.email);
      });
-  }, []);
-
-  // 恢复投票后状态
-  useEffect(() => {
-    const saved = localStorage.getItem('postVoteState');
-    if (!saved) return;
-
-    try {
-      const { session_id, vote_id: savedVoteId, winnerSide: savedWinner, timestamp } = JSON.parse(saved);
-
-      // 检查是否过期（30天）
-      if (Date.now() - timestamp > 30 * 24 * 60 * 60 * 1000) {
-        localStorage.removeItem('postVoteState');
-        return;
-      }
-
-      // 恢复状态
-      setRestoredSessionId(session_id);
-      if (savedVoteId) setRestoredVoteId(savedVoteId);
-      setWinnerSide(savedWinner);
-      setVoteState(prev => ({
-        ...prev,
-        isRevealed: true,
-      }));
-    } catch (e) {
-      localStorage.removeItem('postVoteState');
-    }
   }, []);
 
   // Multi-turn conversation state
@@ -134,7 +94,6 @@ export default function BattlePage() {
 
   // Load model selection from URL or localStorage
   useEffect(() => {
-    // 优先使用 URL 参数
     const urlParams = new URLSearchParams(window.location.search);
     const urlModel = urlParams.get("model");
 
@@ -146,15 +105,12 @@ export default function BattlePage() {
       return;
     }
 
-    // 回退到 localStorage
     try {
       const stored = localStorage.getItem(MODEL_STORAGE_KEY);
       if (stored) {
         setSelectedModelKey(stored);
       }
-    } catch {
-      // localStorage might be unavailable
-    }
+    } catch {}
   }, []);
 
   // Handle model change
@@ -162,15 +118,12 @@ export default function BattlePage() {
     setSelectedModelKey(modelKey);
     try {
       localStorage.setItem(MODEL_STORAGE_KEY, modelKey);
-    } catch {
-      // localStorage might be unavailable in private mode
-    }
+    } catch {}
   }, []);
 
   // Handle default model loaded from API
   const handleDefaultModelLoaded = useCallback((defaultKey: string | null) => {
     setDefaultModelKey(defaultKey);
-    // If no selection yet, use default
     if (!selectedModelKey && defaultKey) {
       setSelectedModelKey(defaultKey);
     }
@@ -207,191 +160,58 @@ export default function BattlePage() {
     result: null,
   });
 
-  // 投票后发送消息
-  const postVoteChatSend = useCallback(async (message: string) => {
-    const sessionId = meta?.session_id || restoredSessionId;
-    if (!sessionId) {
-      setVoteState((prev) => ({ ...prev, error: "缺少 session_id" }));
-      return;
-    }
+  // ===== Post-vote chat via shared Hook =====
+  const {
+    turns: postVoteTurns,
+    currentReply: postVoteCurrentReply,
+    isChatting: isPostVoteChatting,
+    pendingMessage: postVotePendingMessage,
+    isVoted: isPostVoteRestored,
+    preVoteConversation,
+    winnerSide,
+    sendMessage: postVoteSendMessage,
+    setVoteContext,
+    clearVoteState: clearPostVoteState,
+  } = usePostVoteChat({
+    sessionId: meta?.session_id || null,
+    localStorageKey: "postVoteState",
+  });
 
-    const currentVoteId = restoredVoteId || undefined;
-
-    setIsPostVoteChatting(true);
-    setPostVoteCurrentReply("");
-
-    try {
-      const res = await fetch("/api/proxy/api/arena/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: sessionId,
-          vote_id: currentVoteId,
-          user_message: message,
-        }),
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`投票后对话失败：${text}`);
-      }
-
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error("No response body");
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let currentReply = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.trim() || !line.startsWith("data:")) continue;
-          const data = line.slice(5).trim();
-          if (data === "[DONE]") continue;
-
-          try {
-            const json = JSON.parse(data);
-            
-            // Phase 8.2: Unified SSE frame schema parsing
-            const frameType = json.type || (json.delta ? "delta" : json.finish ? "finish" : json.error ? "error" : "unknown");
-            
-            switch (frameType) {
-              case "meta":
-                break;
-              
-              case "delta":
-                if (json.delta) {
-                  currentReply += json.delta;
-                  setPostVoteCurrentReply(currentReply);
-                }
-                break;
-              
-              case "finish":
-                if (json.finish) {
-                  const newTurn: PostVoteTurn = {
-                    turn_index: postVoteTurns.length + 1,
-                    user_message: message,
-                    assistant_message: currentReply,
-                    created_at: new Date().toISOString(),
-                  };
-                  setPostVoteTurns((prev) => [...prev, newTurn]);
-                  setPostVoteCurrentReply("");
-                  setIsPostVoteChatting(false);
-                }
-                break;
-              
-              case "error":
-                if (json.error) {
-                  throw new Error(json.error);
-                }
-                break;
-              
-              default:
-                if (json.delta) {
-                  currentReply += json.delta;
-                  setPostVoteCurrentReply(currentReply);
-                }
-                if (json.finish) {
-                  const newTurn: PostVoteTurn = {
-                    turn_index: postVoteTurns.length + 1,
-                    user_message: message,
-                    assistant_message: currentReply,
-                    created_at: new Date().toISOString(),
-                  };
-                  setPostVoteTurns((prev) => [...prev, newTurn]);
-                  setPostVoteCurrentReply("");
-                  setIsPostVoteChatting(false);
-                }
-                break;
-            }
-          } catch (e) {
-            // 忽略解析错误
-          }
-        }
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-
-      // 检测 session 过期
-      if (message.includes('Invalid session') || message.includes('Must vote')) {
-        localStorage.removeItem('postVoteState');
-        setVoteState((prev) => ({
-          ...prev,
-          error: "会话已过期，请开始新对话",
-          isRevealed: false,
-        }));
-        setWinnerSide(null);
-      } else {
-        setVoteState((prev) => ({ ...prev, error: message }));
-      }
-
-      setIsPostVoteChatting(false);
-    }
-  }, [meta?.session_id, restoredSessionId, restoredVoteId, postVoteTurns.length]);
-
-  // 刷新恢复投票后聊天历史 - 当从 localStorage 恢复 session 后立即加载
-  const [historyFetched, setHistoryFetched] = useState(false);
-
+  // Restore conversation history from preVoteConversation (after page refresh)
   useEffect(() => {
-    // 守卫：不要在用户正在聊天或已有本地消息时 fetch（防止竞态覆盖）
-    if (!restoredSessionId || historyFetched || isPostVoteChatting || postVoteTurns.length > 0) return;
+    if (!preVoteConversation || conversationHistory.length > 0) return;
+    const conv = preVoteConversation;
+    const history = conv.conversation_history?.length > 0
+      ? conv.conversation_history
+      : conv.prompt
+        ? [{ turn: 1, user: conv.prompt, reply_a: conv.reply_a || "", reply_b: conv.reply_b || "" }]
+        : [];
+    if (history.length > 0) {
+      setConversationHistory(history);
+      setPrompt(conv.prompt || "");
+    }
+  }, [preVoteConversation, conversationHistory.length]);
 
-    const fetchHistory = async () => {
-      try {
-        const params = new URLSearchParams({ session_id: restoredSessionId });
-        if (restoredVoteId) params.set("vote_id", restoredVoteId);
-        const res = await fetch(
-          `/api/proxy/api/arena/chat/history?${params.toString()}`
-        );
-        if (!res.ok) return;
-
-        const json = await res.json();
-        const data = json?.data || json;
-        if (data.turns && Array.isArray(data.turns)) {
-          setPostVoteTurns(data.turns);
-        }
-        // Restore pre-vote conversation so ConversationTurnBlock renders
-        if (data.conversation) {
-          const conv = data.conversation;
-          const history = conv.conversation_history?.length > 0
-            ? conv.conversation_history
-            : conv.prompt
-              ? [{ turn: 1, user: conv.prompt, reply_a: conv.reply_a || "", reply_b: conv.reply_b || "" }]
-              : [];
-          if (history.length > 0) {
-            setConversationHistory(history);
-            setPrompt(conv.prompt || "");
-          }
-        }
-      } catch (err) {
-        console.warn("Failed to fetch post-vote chat history:", err);
-      } finally {
-        setHistoryFetched(true);
-      }
-    };
-    fetchHistory();
-  }, [restoredSessionId, historyFetched, isPostVoteChatting, postVoteTurns.length]);
+  // Sync isRevealed from Hook restoration
+  useEffect(() => {
+    if (isPostVoteRestored && !voteState.isRevealed) {
+      setVoteState(prev => ({ ...prev, isRevealed: true }));
+    }
+  }, [isPostVoteRestored, voteState.isRevealed]);
 
   const handleSubmitPrompt = useCallback(
     (inputPrompt: string) => {
       setPrompt(inputPrompt);
 
-      // 投票后继续对话分支
+      // Post-vote chat branch
       if (voteState.isRevealed && winnerSide) {
-        postVoteChatSend(inputPrompt);
+        postVoteSendMessage(inputPrompt);
         return;
       }
 
-      // 投票前的正常流程
+      // Already voted but no winner — don't allow
       if (voteState.isRevealed) {
-        return; // 已投票但无 winner，不允许继续
+        return;
       }
 
       // Determine model to use: selected > default > undefined (backend fallback)
@@ -399,7 +219,7 @@ export default function BattlePage() {
 
       // Only reset vote state on first turn
       if (currentTurn === 0) {
-        localStorage.removeItem('postVoteState');
+        clearPostVoteState();
         setVoteState({
           choice: null,
           isSubmitting: false,
@@ -409,7 +229,6 @@ export default function BattlePage() {
         });
         startBattle(inputPrompt, modelToUse);
       } else {
-        // Continue conversation for subsequent turns (uses session's model)
         if (!meta?.session_id) {
           setVoteState((prev) => ({
             ...prev,
@@ -420,7 +239,7 @@ export default function BattlePage() {
         continueConversation(meta.session_id, inputPrompt);
       }
     },
-    [startBattle, continueConversation, currentTurn, meta?.session_id, voteState.isRevealed, winnerSide, postVoteChatSend, selectedModelKey, defaultModelKey]
+    [startBattle, continueConversation, currentTurn, meta?.session_id, voteState.isRevealed, winnerSide, postVoteSendMessage, selectedModelKey, defaultModelKey, clearPostVoteState]
   );
 
   // 保存草稿到数据库
@@ -434,16 +253,16 @@ export default function BattlePage() {
         const { data, error: authErr } = await supabase.auth.getUser();
         if (authErr) {
           console.warn("supabase.auth.getUser() failed", authErr);
-          return; // Don't save if user is not authenticated
+          return;
         }
         user = data.user;
         if (!user?.id) {
           console.warn("No user id available, skipping draft save");
-          return; // Don't save if user id is undefined
+          return;
         }
       } catch (err) {
         console.warn("createSupabaseBrowserClient() failed", err);
-        return; // Don't save on error
+        return;
       }
 
       await fetch("/api/proxy/api/arena/draft", {
@@ -485,7 +304,6 @@ export default function BattlePage() {
             reply_b: rightText,
           }
         ]);
-        // Update current turn if not already set by backend
         if (currentTurn === 0) {
           setCurrentTurn(1);
         }
@@ -511,7 +329,6 @@ export default function BattlePage() {
     if (!initialPrompt) return;
 
     handleSubmitPrompt(initialPrompt);
-    // Clean up URL after bootstrapping.
     router.replace("/battle");
   }, [bootstrappedFromQuery, handleSubmitPrompt, router]);
 
@@ -588,20 +405,9 @@ export default function BattlePage() {
           result: payload ? { ...payload, winner } : null,
         }));
 
-        setWinnerSide(winner);
-
-        // 保存投票状态到 localStorage
-        if (winner && meta?.session_id) {
-          try {
-            localStorage.setItem('postVoteState', JSON.stringify({
-              session_id: meta.session_id,
-              vote_id: payload?.vote_id,
-              winnerSide: winner,
-              timestamp: Date.now(),
-            }));
-          } catch (e) {
-            console.warn("Failed to save postVoteState to localStorage:", e);
-          }
+        // Set vote context in Hook (handles localStorage persistence + history fetch)
+        if (winner && payload?.vote_id) {
+          setVoteContext(payload.vote_id, winner);
         }
 
         // 删除草稿（已投票）
@@ -619,11 +425,11 @@ export default function BattlePage() {
         }));
       }
     },
-    [meta, prompt]
+    [meta, prompt, setVoteContext]
   );
 
   const handleReset = useCallback(() => {
-    localStorage.removeItem('postVoteState');
+    clearPostVoteState();
     reset();
     setPrompt("");
     setVoteState({
@@ -636,12 +442,7 @@ export default function BattlePage() {
     setConversationHistory([]);
     setCurrentTurn(0);
     setTurnWarning(false);
-    setWinnerSide(null);
-    setPostVoteTurns([]);
-    setPostVoteCurrentReply("");
-    setIsPostVoteChatting(false);
-    setRestoredSessionId(null);
-  }, [reset]);
+  }, [reset, clearPostVoteState]);
 
   const isStreaming = status === "streaming";
   const isDone = status === "done";
@@ -694,7 +495,7 @@ export default function BattlePage() {
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (chatContainerRef.current && (isStreaming || conversationHistory.length > 0)) {
+    if (chatContainerRef.current && (isStreaming || conversationHistory.length > 0 || postVoteTurns.length > 0 || isPostVoteChatting)) {
       const timer = setTimeout(() => {
         chatContainerRef.current?.scrollTo({
           top: chatContainerRef.current.scrollHeight,
@@ -703,20 +504,20 @@ export default function BattlePage() {
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [conversationHistory.length, leftText, rightText, isStreaming]);
+  }, [conversationHistory.length, leftText, rightText, isStreaming, postVoteTurns.length, postVoteCurrentReply, isPostVoteChatting]);
 
   return (
     <div className="flex h-screen bg-surface-primary text-text-primary overflow-hidden">
       {/* Desktop sidebar */}
-      <div 
+      <div
         className={cn(
           "hidden md:block shrink-0 transition-[width] duration-300 ease-in-out",
           sidebarCollapsed ? "w-[60px]" : "w-[260px]"
         )}
       >
-        <Sidebar 
-          className="h-full" 
-          userEmail={userEmail} 
+        <Sidebar
+          className="h-full"
+          userEmail={userEmail}
           collapsed={sidebarCollapsed}
           onToggleCollapse={toggleSidebarCollapse}
         />
@@ -777,7 +578,7 @@ export default function BattlePage() {
         <main ref={chatContainerRef} className="flex-1 overflow-y-auto relative scrollbar-thin">
           <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 pb-40">
             <AnimatePresence mode="wait">
-              {status === "idle" && !hasContent && (
+              {status === "idle" && !hasContent && !isPostVoteRestored && (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -807,7 +608,7 @@ export default function BattlePage() {
               </motion.div>
             )}
 
-            {(hasContent || isStreaming) && (
+            {(hasContent || isStreaming || isPostVoteRestored) && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -846,10 +647,6 @@ export default function BattlePage() {
                     rightJudgeScores={judgeScoresRight}
                     judgeLoading={voteState.isSubmitting}
                     winnerSide={winnerSide}
-                    isLastTurn={idx === conversationHistory.length - 1 && status !== "streaming"}
-                    postVoteTurns={postVoteTurns}
-                    postVoteCurrentReply={postVoteCurrentReply}
-                    isPostVoteChatting={isPostVoteChatting}
                   />
                 ))}
 
@@ -867,13 +664,12 @@ export default function BattlePage() {
                     rightIsStreaming={rightStreaming}
                     isRevealed={false}
                     winnerSide={null}
-                    isLastTurn={true}
                   />
                 )}
 
                 {/* Vote Section */}
                 <AnimatePresence>
-                  {isDone && (
+                  {isDone && !voteState.isRevealed && (
                     <motion.div
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -881,16 +677,14 @@ export default function BattlePage() {
                       className="w-full flex justify-center py-4"
                     >
                       <div className="w-full max-w-3xl">
-                        {!voteState.isRevealed && (
-                          <div className="text-center mb-6">
-                            <h3 className="text-lg font-semibold text-text-primary mb-1">
-                              Which response is better?
-                            </h3>
-                            <p className="text-sm text-text-muted">
-                              Choose the best model to reveal their identities
-                            </p>
-                          </div>
-                        )}
+                        <div className="text-center mb-6">
+                          <h3 className="text-lg font-semibold text-text-primary mb-1">
+                            Which response is better?
+                          </h3>
+                          <p className="text-sm text-text-muted">
+                            Choose the best model to reveal their identities
+                          </p>
+                        </div>
 
                         <VoteButtons
                           onVote={handleVote}
@@ -901,6 +695,73 @@ export default function BattlePage() {
                     </motion.div>
                   )}
                 </AnimatePresence>
+
+                {/* ===== Post-vote chat — FULL WIDTH ===== */}
+                {voteState.isRevealed && winnerSide && (
+                  <div className="mt-6 space-y-4">
+                    {/* Divider */}
+                    <div className="flex items-center gap-3 py-2">
+                      <div className="flex-1 h-px bg-border-faint" />
+                      <span className="text-xs font-medium text-interactive-accent uppercase tracking-wider">
+                        Continued Chat with Winner
+                      </span>
+                      <div className="flex-1 h-px bg-border-faint" />
+                    </div>
+
+                    {/* Persisted post-vote turns */}
+                    {postVoteTurns.map((turn) => (
+                      <div key={`pv-${turn.turn_index}`} className="space-y-4">
+                        {/* User message */}
+                        <div className="flex justify-end">
+                          <div className="max-w-[85%] rounded-2xl bg-surface-elevated px-4 py-3 text-text-primary">
+                            <div className="prose prose-sm prose-invert max-w-none break-words">
+                              <MarkdownRenderer>{turn.user_message}</MarkdownRenderer>
+                            </div>
+                          </div>
+                        </div>
+                        {/* Assistant reply */}
+                        <div className="flex justify-start w-full">
+                          <div className="w-full max-w-[85%] rounded-xl text-text-secondary">
+                            <div className="prose prose-sm prose-invert max-w-none break-words">
+                              <MarkdownRenderer>{turn.assistant_message}</MarkdownRenderer>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Pending user message (sent but not yet saved) */}
+                    {postVotePendingMessage && (
+                      <div className="flex justify-end">
+                        <div className="max-w-[85%] rounded-2xl bg-surface-elevated px-4 py-3 text-text-primary">
+                          <div className="prose prose-sm prose-invert max-w-none break-words">
+                            <MarkdownRenderer>{postVotePendingMessage}</MarkdownRenderer>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Streaming reply or thinking indicator */}
+                    {(postVoteCurrentReply || isPostVoteChatting) && (
+                      <div className="flex justify-start w-full">
+                        <div className="w-full max-w-[85%] rounded-xl text-text-secondary">
+                          <div className="prose prose-sm prose-invert max-w-none break-words">
+                            {postVoteCurrentReply ? (
+                              <>
+                                <MarkdownRenderer>{postVoteCurrentReply}</MarkdownRenderer>
+                                {isPostVoteChatting && (
+                                  <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-interactive-accent align-middle" />
+                                )}
+                              </>
+                            ) : (
+                              <ThinkingIndicator showSkeleton={false} />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </motion.div>
             )}
           </div>

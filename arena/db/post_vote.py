@@ -81,18 +81,19 @@ async def _insert_post_vote_turn_supabase(
         return "error"
 
 
-async def _fetch_post_vote_turns_supabase(vote_id: str) -> List[Dict[str, Any]]:
+async def _fetch_post_vote_turns_supabase(vote_id: str) -> tuple[List[Dict[str, Any]], Optional[str]]:
     """Fetch all post-vote turns for a given vote_id.
 
     Args:
         vote_id: UUID of the vote record
 
     Returns:
-        List of turn records, ordered by turn_index
+        Tuple of (turns, error_type). On success error_type is None.
+        On failure turns is [] and error_type describes the issue.
     """
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         print("[WARN] SUPABASE_URL or SUPABASE_SERVICE_KEY not set; return empty list", file=sys.stderr)
-        return []
+        return [], "config_missing"
 
     url = f"{SUPABASE_URL}/rest/v1/post_vote_turns"
     headers = {
@@ -116,8 +117,8 @@ async def _fetch_post_vote_turns_supabase(vote_id: str) -> List[Dict[str, Any]]:
                     context={"vote_id": vote_id, "status": resp.status_code},
                     exc=None
                 )
-                return []
-            return resp.json() or []
+                return [], "db_fetch_failed"
+            return resp.json() or [], None
     except asyncio.CancelledError:
         # Important: allow cancellations (e.g., asyncio.wait_for timeouts) to propagate.
         raise
@@ -127,4 +128,4 @@ async def _fetch_post_vote_turns_supabase(vote_id: str) -> List[Dict[str, Any]]:
             context={"vote_id": vote_id},
             exc=exc
         )
-        return []
+        return [], "db_fetch_exception"
