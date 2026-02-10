@@ -20,7 +20,7 @@ os.environ['ARENA_SESSION_TTL_SEC'] = '3600'
 os.environ['ARENA_MAX_SESSIONS'] = '1000'
 os.environ['ARENA_CACHE_TTL_SEC'] = '60'
 
-from app import SupabaseSessionStore
+from arena.session import SupabaseSessionStore
 
 
 def print_test_header(test_name):

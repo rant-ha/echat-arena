@@ -178,6 +178,7 @@ export default function ChatDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           session_id: vote.session_id,
+          vote_id: id,
           user_message: message,
         }),
       });

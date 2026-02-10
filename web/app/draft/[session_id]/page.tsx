@@ -310,6 +310,7 @@ export default function DraftDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           session_id: draft.session_id,
+          vote_id: voteId || undefined,
           user_message: message,
         }),
       });
