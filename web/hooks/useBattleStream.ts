@@ -132,7 +132,7 @@ export function useBattleStream(options?: UseBattleStreamOptions) {
     }));
   }, []);
 
-  const startBattle = useCallback(async (prompt: string, modelKey?: string, retryCount = 0) => {
+  const startBattle = useCallback(async (prompt: string, modelKey?: string, searchEnabled?: boolean, retryCount = 0) => {
     const MAX_RETRIES = 3;
     const RETRY_DELAY_MS = 2000; // 2秒基础延迟，指数退避后为 2s → 4s → 8s
 
@@ -155,7 +155,7 @@ export function useBattleStream(options?: UseBattleStreamOptions) {
       const res = await fetch("/api/proxy/api/arena/battle", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, model_key: modelKey }),
+        body: JSON.stringify({ prompt, model_key: modelKey, search_enabled: searchEnabled || false }),
         signal: controller.signal,
       });
 
@@ -289,7 +289,7 @@ export function useBattleStream(options?: UseBattleStreamOptions) {
         console.warn(`Battle stream failed, retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`, err);
         
         await new Promise(resolve => setTimeout(resolve, delay));
-        return startBattle(prompt, modelKey, retryCount + 1);
+        return startBattle(prompt, modelKey, searchEnabled, retryCount + 1);
       }
       
       const message = err instanceof Error ? err.message : String(err);
@@ -301,7 +301,7 @@ export function useBattleStream(options?: UseBattleStreamOptions) {
     }
   }, [options]);
 
-  const continueConversation = useCallback(async (sessionId: string, prompt: string, modelKey?: string, retryCount = 0) => {
+  const continueConversation = useCallback(async (sessionId: string, prompt: string, modelKey?: string, searchEnabled?: boolean, retryCount = 0) => {
     const MAX_RETRIES = 3;
     const RETRY_DELAY_MS = 2000; // 2秒基础延迟，指数退避后为 2s → 4s → 8s
 
@@ -325,7 +325,7 @@ export function useBattleStream(options?: UseBattleStreamOptions) {
       const res = await fetch("/api/proxy/api/arena/continue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, user_message: prompt, model_key: modelKey }),
+        body: JSON.stringify({ session_id: sessionId, user_message: prompt, model_key: modelKey, search_enabled: searchEnabled || false }),
         signal: controller.signal,
       });
 
@@ -459,7 +459,7 @@ export function useBattleStream(options?: UseBattleStreamOptions) {
         console.warn(`Continue conversation failed, retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`, err);
         
         await new Promise(resolve => setTimeout(resolve, delay));
-        return continueConversation(sessionId, prompt, modelKey, retryCount + 1);
+        return continueConversation(sessionId, prompt, modelKey, searchEnabled, retryCount + 1);
       }
       
       const message = err instanceof Error ? err.message : String(err);

@@ -13,6 +13,7 @@ interface UsePostVoteChatOptions {
   sessionId: string | null;
   initialVoteId?: string | null;
   localStorageKey?: string;
+  searchEnabled?: boolean;
 }
 
 interface UsePostVoteChatReturn {
@@ -53,6 +54,7 @@ export function usePostVoteChat({
   sessionId,
   initialVoteId,
   localStorageKey,
+  searchEnabled,
 }: UsePostVoteChatOptions): UsePostVoteChatReturn {
   const [voteId, setVoteId] = useState<string | null>(null);
   const [winnerSide, setWinnerSide] = useState<"left" | "right" | null>(null);
@@ -217,6 +219,7 @@ export function usePostVoteChat({
           session_id: resolvedSessionId,
           vote_id: voteId || undefined,
           user_message: message,
+          search_enabled: searchEnabled || false,
         }),
       });
 
@@ -330,7 +333,7 @@ export function usePostVoteChat({
     } finally {
       setIsChatting(false);
     }
-  }, [resolvedSessionId, voteId, isChatting, localStorageKey]);
+  }, [resolvedSessionId, voteId, isChatting, localStorageKey, searchEnabled]);
 
   // 5. setVoteContext — called by parent after voting
   const setVoteContext = useCallback((newVoteId: string, newWinnerSide: "left" | "right") => {

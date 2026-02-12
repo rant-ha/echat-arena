@@ -171,3 +171,9 @@ EVAL_MODEL_ID = EVAL_MODEL_ID or EMPATHY_MODEL_ID
 def _list_models() -> List[str]:
     # Keep simple: return all keys from api_endpoints.json
     return sorted(set(_MODEL_CONFIG.keys()))
+
+# ---------------------------------------------------------------------------
+# Web Search (optional, user-toggled)
+# ---------------------------------------------------------------------------
+WEB_SEARCH_MAX_RESULTS = int(os.environ.get("ARENA_WEB_SEARCH_MAX_RESULTS", "5"))
+WEB_SEARCH_TIMEOUT_SEC = float(os.environ.get("ARENA_WEB_SEARCH_TIMEOUT_SEC", "8"))

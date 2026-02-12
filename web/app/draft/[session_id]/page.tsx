@@ -63,6 +63,9 @@ export default function DraftDetailPage() {
 
   const [isVoting, setIsVoting] = useState(false);
 
+  // Save status tracking for draft updates
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
+
   // Pre-vote battle state
   const [currentTurn, setCurrentTurn] = useState(0);
   const [newBattleTurns, setNewBattleTurns] = useState<ConversationHistoryTurn[]>([]);
@@ -152,6 +155,15 @@ export default function DraftDetailPage() {
         if (!cancelled) {
           if (data.ok && data.draft) {
             setDraft(data.draft);
+            // Restore draft session to SessionStore for pre-vote continuation
+            // This is critical: without this, /api/arena/continue will return 400 "Invalid session"
+            try {
+              await fetch(`/api/proxy/api/arena/draft/${session_id}/restore`, {
+                method: "POST",
+              });
+            } catch (err) {
+              console.warn("Failed to restore session for continuation:", err);
+            }
           } else if (res.status === 404 && data.vote_id) {
             // Exact match: only 404 + vote_id enters "voted/can redirect" branch
             setVoteId(data.vote_id);
@@ -210,14 +222,31 @@ export default function DraftDetailPage() {
       const data = await res.json();
 
       if (data.ok) {
-        if (data.vote_id && (data.winner_side === "left" || data.winner_side === "right")) {
+        if (data.vote_id) {
+          // 有 vote_id 就设置并跳转到 /chat/[vote_id]
           setVoteId(data.vote_id);
-          setWinnerSide(data.winner_side);
+          if (data.winner_side === "left" || data.winner_side === "right") {
+            setWinnerSide(data.winner_side);
+          }
+          // 自动跳转到 /chat/[vote_id]
+          setTimeout(() => {
+            try {
+              router.push(`/chat/${data.vote_id}`);
+            } catch (err) {
+              console.error("Redirect failed:", err);
+              setError("跳转失败，请手动点击按钮查看");
+            }
+          }, 800);
         } else {
-          // tie/both_bad: set pendingRedirect to prevent double-click
+          // 没有 vote_id: 跳转到历史页
           setPendingRedirect(true);
           setTimeout(() => {
-            router.push("/history");
+            try {
+              router.push("/history");
+            } catch (err) {
+              console.error("Redirect failed:", err);
+              setError("跳转失败，请手动刷新页面");
+            }
           }, 1500);
         }
       } else {
@@ -242,8 +271,17 @@ export default function DraftDetailPage() {
   // Save draft update to database when new battle turn is complete
   const saveDraftUpdate = useCallback(async (newTurn: ConversationHistoryTurn, allTurns: ConversationHistoryTurn[]) => {
     if (!draft?.session_id) return;
+
+    // Ensure userId is available before attempting save
+    if (!userId) {
+      console.warn("[saveDraftUpdate] userId is null, skipping save for session:", draft.session_id);
+      return;
+    }
+
+    setSaveStatus("saving");
+
     try {
-      await fetch("/api/proxy/api/arena/draft", {
+      const res = await fetch("/api/proxy/api/arena/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -260,7 +298,37 @@ export default function DraftDetailPage() {
           model_config: draft.model_config,
         }),
       });
-    } catch (err) { console.warn("Failed to save draft update:", err); }
+
+      // Response validation: check HTTP status
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error("[saveDraftUpdate] HTTP error:", res.status, errorText);
+        setSaveStatus("error");
+        setTimeout(() => setSaveStatus("idle"), 5000);
+        return;
+      }
+
+      // Parse JSON response
+      const data = await res.json();
+
+      // Verify data.ok === true
+      if (!data.ok) {
+        console.error("[saveDraftUpdate] API error:", data.error);
+        setSaveStatus("error");
+        setTimeout(() => setSaveStatus("idle"), 5000);
+        return;
+      }
+
+      // Success
+      console.log("[saveDraftUpdate] Draft saved successfully for session:", draft.session_id);
+      setSaveStatus("success");
+      setTimeout(() => setSaveStatus("idle"), 3000);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error("[saveDraftUpdate] Network error:", errorMessage);
+      setSaveStatus("error");
+      setTimeout(() => setSaveStatus("idle"), 5000);
+    }
   }, [draft?.session_id, draft?.prompt, draft?.model_a, draft?.model_b, draft?.model_config, userId, userEmail]);
 
   // Save new battle turn when complete
@@ -281,6 +349,18 @@ export default function DraftDetailPage() {
       if (draft?.session_id) saveDraftUpdate(newTurn, allTurns);
     }
   }, [battleStatus, leftText, rightText, currentPrompt, draft?.conversation_history, newBattleTurns, draft?.session_id, saveDraftUpdate]);
+
+  // Cleanup effect: Clear currentPrompt after 5 seconds when battleStatus === "error"
+  // This prevents stale messages from persisting after a failed battle
+  useEffect(() => {
+    if (battleStatus === "error") {
+      const timeoutId = setTimeout(() => {
+        setCurrentPrompt("");
+      }, 5000);
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [battleStatus]);
 
   return (
     <div className="flex min-h-screen bg-[var(--main-bg)] text-[var(--text-primary)]">
@@ -360,6 +440,44 @@ export default function DraftDetailPage() {
           </div>
         </header>
 
+        {/* Save Status Notification */}
+        {saveStatus !== "idle" && (
+          <div className="fixed top-20 right-4 z-50 animate-in slide-in-from-right">
+            <div
+              className={cn(
+                "rounded-lg px-4 py-3 shadow-lg border",
+                "flex items-center gap-2 text-sm font-medium",
+                saveStatus === "saving" && "bg-blue-500/10 border-blue-500/30 text-blue-300",
+                saveStatus === "success" && "bg-green-500/10 border-green-500/30 text-green-300",
+                saveStatus === "error" && "bg-red-500/10 border-red-500/30 text-red-300"
+              )}
+            >
+              {saveStatus === "saving" && (
+                <>
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-300 border-t-transparent" />
+                  <span>保存中...</span>
+                </>
+              )}
+              {saveStatus === "success" && (
+                <>
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span>保存成功</span>
+                </>
+              )}
+              {saveStatus === "error" && (
+                <>
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  <span>保存失败</span>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Content */}
         <main className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
@@ -370,6 +488,10 @@ export default function DraftDetailPage() {
             ) : error ? (
               <div className="rounded-xl border border-red-400/30 bg-red-500/10 p-5">
                 <p className="text-sm text-red-300">{error}</p>
+              </div>
+            ) : battleError ? (
+              <div className="rounded-xl border border-red-400/30 bg-red-500/10 p-5">
+                <p className="text-sm text-red-300">对话生成失败: {battleError}</p>
               </div>
             ) : draft ? (
               <div className="space-y-6">
@@ -415,7 +537,8 @@ export default function DraftDetailPage() {
                 ))}
 
                 {/* Current streaming battle turn (pre-vote) */}
-                {battleStatus === "streaming" && currentPrompt && (
+                {/* Show turn when streaming OR error to ensure failed turns are visible */}
+                {(battleStatus === "streaming" || battleStatus === "error") && currentPrompt && (
                   <ConversationTurnBlock
                     turnIndex={(draft?.conversation_history?.length || 1) + newBattleTurns.length + 1}
                     userMessage={currentPrompt}
@@ -426,6 +549,7 @@ export default function DraftDetailPage() {
                     leftIsStreaming={!leftDone}
                     rightIsStreaming={!rightDone}
                     isRevealed={false}
+                    error={battleStatus === "error" ? (battleError || undefined) : undefined}
                   />
                 )}
 

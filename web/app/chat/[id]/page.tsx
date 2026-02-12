@@ -75,6 +75,9 @@ export default function ChatDetailPage() {
   const [userName, setUserName] = useState<string | null>(null);
   const [userAvatarUrl, setUserAvatarUrl] = useState<string | null>(null);
 
+  const [searchEnabled, setSearchEnabled] = useState(false);
+  const toggleSearch = useCallback(() => setSearchEnabled(prev => !prev), []);
+
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
 
@@ -94,6 +97,7 @@ export default function ChatDetailPage() {
   } = usePostVoteChat({
     sessionId: vote?.session_id || null,
     initialVoteId: id,
+    searchEnabled,
   });
 
   useEffect(() => {
@@ -352,6 +356,8 @@ export default function ChatDetailPage() {
             <PromptInput
               onSubmit={handleContinueChat}
               disabled={isStreaming || loading}
+              searchEnabled={searchEnabled}
+              onSearchToggle={toggleSearch}
               placeholder="继续与获胜模型对话..."
             />
           </div>

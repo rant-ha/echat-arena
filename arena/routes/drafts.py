@@ -69,6 +69,16 @@ async def save_draft(body: Dict[str, Any] = Body(...)) -> JSONResponse:
         async with httpx.AsyncClient() as client:
             resp = await client.post(url, headers=headers, json=row, timeout=10.0)
             if resp.status_code >= 400:
+                # Log error with context
+                log_error("draft_save_failed", {
+                    "session_id": session_id,
+                    "status_code": resp.status_code,
+                    "user_id": user_id,
+                    "user_email": user_email,
+                    "turn_count": turn_count,
+                    "response_text": resp.text[:500],  # Truncate long responses
+                }, None)
+
                 if _looks_like_unique_violation(resp):
                     # Concurrent insert won, fall back to PATCH
                     patch_url = f"{SUPABASE_URL}/rest/v1/draft_conversations?session_id=eq.{session_id}"
@@ -79,11 +89,45 @@ async def save_draft(body: Dict[str, Any] = Body(...)) -> JSONResponse:
                     }
                     resp = await client.patch(patch_url, headers=patch_headers, json=row, timeout=10.0)
                     if resp.status_code < 400:
+                        # Log successful fallback
+                        print(_json_dumps({
+                            "t": _utc_now_iso(),
+                            "type": "draft_save_fallback_success",
+                            "session": session_id,
+                            "user_id": user_id,
+                            "turn_count": turn_count,
+                        }))
                         return JSONResponse({"ok": True, "session_id": session_id})
+                    else:
+                        # Log fallback failure
+                        log_error("draft_save_fallback_failed", {
+                            "session_id": session_id,
+                            "status_code": resp.status_code,
+                            "user_id": user_id,
+                            "response_text": resp.text[:500],
+                        }, None)
                 return JSONResponse({"ok": False, "error": f"Database error: {resp.text}"}, status_code=500)
+
+        # Log successful save
+        print(_json_dumps({
+            "t": _utc_now_iso(),
+            "type": "draft_save_success",
+            "session": session_id,
+            "user_id": user_id,
+            "user_email": user_email,
+            "turn_count": turn_count,
+        }))
 
         return JSONResponse({"ok": True, "session_id": session_id})
     except Exception as e:
+        # Log exception with context
+        log_error("draft_save_exception", {
+            "session_id": session_id,
+            "user_id": user_id,
+            "user_email": user_email,
+            "turn_count": turn_count,
+            "error": str(e),
+        }, e)
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
@@ -372,6 +416,115 @@ async def vote_draft(session_id: str, body: Dict[str, Any] = Body(...), backgrou
 
     except Exception as e:
         print(f"[ERROR] vote_draft failed: {e}", file=sys.stderr)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@router.post(f"{API_PREFIX}/draft/{{session_id}}/restore")
+async def restore_draft(session_id: str) -> JSONResponse:
+    """Restore a draft conversation to SessionStore for pre-vote continuation.
+
+    This endpoint restores a draft conversation from the database to the in-memory
+    SessionStore, allowing users to continue chatting before voting. Unlike vote_draft,
+    this does NOT include vote_id or winner fields since the session is pre-vote.
+    """
+    if not session_id:
+        return JSONResponse({"ok": False, "error": "session_id required"}, status_code=400)
+
+    try:
+        # 1. Fetch draft from database
+        url = f"{SUPABASE_URL}/rest/v1/draft_conversations"
+        headers = {
+            "apikey": SUPABASE_SERVICE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        }
+        params = {"session_id": f"eq.{session_id}"}
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=headers, params=params, timeout=10.0)
+            if resp.status_code >= 400:
+                log_error("draft_restore_fetch_failed", {
+                    "session_id": session_id,
+                    "status": resp.status_code,
+                    "error": resp.text
+                }, None)
+                return JSONResponse({"ok": False, "error": "Database error"}, status_code=500)
+            data = resp.json()
+            if not data:
+                return JSONResponse(
+                    {"ok": False, "error": "Draft not found"},
+                    status_code=404,
+                    headers={"Cache-Control": "no-store"},
+                )
+
+        draft = data[0]
+
+        # 2. Extract draft data and model config
+        model_config = draft.get("model_config") or {}
+        left_config = model_config.get("left") or {}
+        right_config = model_config.get("right") or {}
+
+        # 3. Build session object for SessionStore (pre-vote: no vote_id, no winner)
+        conversation_history = draft.get("conversation_history") or []
+        turn_count = draft.get("turn_count") or 1
+
+        restored_session = {
+            "_ts": time.time(),  # Required for session TTL check
+            "prompt": draft.get("prompt", ""),
+            "left": {
+                "arm": left_config.get("arm", "baseline"),
+                "model_id": left_config.get("model_id", draft.get("model_a")),
+                "text": draft.get("reply_a", ""),
+                "context": [],  # Initialize empty context for continued chat
+            },
+            "right": {
+                "arm": right_config.get("arm", "strategy"),
+                "model_id": right_config.get("model_id", draft.get("model_b")),
+                "text": draft.get("reply_b", ""),
+                "context": [],  # Initialize empty context for continued chat
+            },
+            # Pre-vote: NO vote_id, NO winner fields
+            "conversation_history": conversation_history,
+            "turn_count": turn_count,
+            "template_id": model_config.get("template_id"),
+            "strategy_name": model_config.get("strategy_name"),
+            "base_model_name": draft.get("model_a") or "unknown",
+        }
+
+        # 4. Restore session to memory store
+        _SESSION_STORE = get_state().session_store
+        session_restored = await _SESSION_STORE.put_or_update(session_id, restored_session)
+
+        if not session_restored:
+            log_error("draft_restore_failed", {
+                "session_id": session_id,
+                "turn_count": turn_count,
+            }, None)
+            return JSONResponse(
+                {"ok": False, "error": "Failed to restore session to memory"},
+                status_code=500,
+            )
+
+        # 5. Log successful restoration
+        print(_json_dumps({
+            "t": _utc_now_iso(),
+            "type": "draft_restored",
+            "session": session_id,
+            "turn_count": turn_count,
+            "persisted_to_supabase": session_restored,
+        }))
+
+        return JSONResponse({
+            "ok": True,
+            "session_id": session_id,
+            "turn_count": turn_count,
+        })
+
+    except Exception as e:
+        log_error("draft_restore_exception", {
+            "session_id": session_id,
+            "error": str(e),
+        }, e)
+        print(f"[ERROR] restore_draft failed for session={session_id}: {e}", file=sys.stderr)
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 

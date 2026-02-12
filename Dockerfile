@@ -27,6 +27,9 @@ RUN apt-get update \
     # 4.3 Redis 缓存层（Phase 3）：redis[hiredis] 用于 L1 session 缓存
     && pip install --no-cache-dir "redis[hiredis]" \
     \
+    # 4.4 Web search (optional, user-toggled DuckDuckGo search augmentation)
+    && pip install --no-cache-dir duckduckgo-search \
+    \
     # 5. 安装 FastChat WebUI
     && pip install --no-cache-dir "fschat[webui]" \
     \

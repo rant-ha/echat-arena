@@ -77,7 +77,7 @@ async def _generate_stream_to_queue(
     return "".join(buf)
 
 
-async def _battle_sse(req: Request, prompt: str, session_id: str, model_key: Optional[str] = None) -> AsyncIterator[bytes]:
+async def _battle_sse(req: Request, prompt: str, session_id: str, model_key: Optional[str] = None, search_enabled: bool = False) -> AsyncIterator[bytes]:
     # Controlled single-model A/B: both sides use the same underlying model id
     # Arms denote which system prompt to use: baseline (empty/simple) vs empathy (templated)
     arms = ["baseline", "empathy"]
@@ -126,6 +126,13 @@ async def _battle_sse(req: Request, prompt: str, session_id: str, model_key: Opt
 
     empathy_system = _build_empathy_system_prompt(safe_emo, safe_inten, safe_stype, template_snippet)
 
+    # Web search (if user-toggled)
+    search_context = ""
+    if search_enabled:
+        from arena.tools.web_search import search_web, format_search_context
+        results = await search_web(prompt)
+        search_context = format_search_context(prompt, results)
+
     # 2) send meta frame (anonymous labels for client)
     # Phase 8.2: Unified SSE frame schema
     meta: Dict[str, Any] = {
@@ -145,6 +152,7 @@ async def _battle_sse(req: Request, prompt: str, session_id: str, model_key: Opt
         "intensity": inten,
         "support_type": stype,
         "ts": _utc_now_iso(),
+        "search_enabled": search_enabled,
     }
     if isinstance(comment, str) and comment.strip():
         meta["classifier_comment"] = comment.strip()
@@ -163,11 +171,17 @@ async def _battle_sse(req: Request, prompt: str, session_id: str, model_key: Opt
     left_messages: List[Dict[str, str]] = []
     if left_system:
         left_messages.append({"role": "system", "content": left_system})
+    if search_context:
+        left_messages.append({"role": "user", "content": search_context})
+        left_messages.append({"role": "assistant", "content": "I'll reference these search results in my response."})
     left_messages.append({"role": "user", "content": prompt})
 
     right_messages: List[Dict[str, str]] = []
     if right_system:
         right_messages.append({"role": "system", "content": right_system})
+    if search_context:
+        right_messages.append({"role": "user", "content": search_context})
+        right_messages.append({"role": "assistant", "content": "I'll reference these search results in my response."})
     right_messages.append({"role": "user", "content": prompt})
 
     left_task = asyncio.create_task(

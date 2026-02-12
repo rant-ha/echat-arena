@@ -94,6 +94,10 @@ export default function BattlePage() {
   const [defaultModelKey, setDefaultModelKey] = useState<string | null>(null);
   const MODEL_STORAGE_KEY = "echat-arena-v1-selected-model";
 
+  // Web search toggle state
+  const [searchEnabled, setSearchEnabled] = useState(false);
+  const toggleSearch = useCallback(() => setSearchEnabled(prev => !prev), []);
+
   // Load model selection from URL or localStorage
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -183,7 +187,7 @@ export default function BattlePage() {
           error: null,
           result: null,
         });
-        startBattle(inputPrompt, modelToUse);
+        startBattle(inputPrompt, modelToUse, searchEnabled);
       } else {
         if (!meta?.session_id) {
           setVoteState((prev) => ({
@@ -192,10 +196,10 @@ export default function BattlePage() {
           }));
           return;
         }
-        continueConversation(meta.session_id, inputPrompt);
+        continueConversation(meta.session_id, inputPrompt, undefined, searchEnabled);
       }
     },
-    [startBattle, continueConversation, currentTurn, meta?.session_id, voteState.isRevealed, selectedModelKey, defaultModelKey]
+    [startBattle, continueConversation, currentTurn, meta?.session_id, voteState.isRevealed, selectedModelKey, defaultModelKey, searchEnabled]
   );
 
   // 保存草稿到数据库
@@ -362,12 +366,22 @@ export default function BattlePage() {
         }));
 
         // 投票成功后跳转
-        if (winner && payload?.vote_id) {
-          // 跳转到 /chat/[vote_id] 继续对话
-          setTimeout(() => router.push(`/chat/${payload.vote_id}`), 800);
+        if (payload?.vote_id) {
+          // 有 vote_id 就跳转到 /chat/[vote_id] 继续对话
+          setTimeout(() => {
+            router.push(`/chat/${payload.vote_id}`);
+          }, 800);
         } else if (choice === "tie" || choice === "both_bad") {
-          // tie/both_bad: 延迟跳转到历史页
-          setTimeout(() => router.push("/history"), 1500);
+          // tie/both_bad 且没有 vote_id: 延迟跳转到历史页
+          setTimeout(() => {
+            router.push("/history");
+          }, 1500);
+        } else {
+          // 没有 vote_id 且不是 tie/both_bad: 显示错误
+          setVoteState((prev) => ({
+            ...prev,
+            error: "投票记录创建失败，请重试",
+          }));
         }
 
         // 删除草稿（已投票）
@@ -667,6 +681,8 @@ export default function BattlePage() {
             <PromptInput
               onSubmit={handleSubmitPrompt}
               disabled={isStreaming || voteState.isRevealed}
+              searchEnabled={searchEnabled}
+              onSearchToggle={toggleSearch}
               placeholder={
                 isStreaming
                   ? "Generating..."

@@ -39,6 +39,7 @@ async def post_vote_chat(req: Request, body: Dict[str, Any] = Body(...)) -> Stre
     user_message = (body.get("user_message") or body.get("prompt") or "").strip()
     # Accept optional vote_id for direct lookup (avoids session reconstruction)
     req_vote_id = (body.get("vote_id") or "").strip()
+    search_enabled = bool(body.get("search_enabled", False))
 
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
@@ -111,7 +112,7 @@ async def post_vote_chat(req: Request, body: Dict[str, Any] = Body(...)) -> Stre
         raise HTTPException(status_code=400, detail="vote_id not found; post-vote chat not available")
 
     # Build context and stream
-    ctx = await build_post_vote_context(sess, session_id, user_message)
+    ctx = await build_post_vote_context(sess, session_id, user_message, search_enabled=search_enabled)
 
     headers = {
         "Cache-Control": "no-cache",

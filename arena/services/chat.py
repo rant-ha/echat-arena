@@ -34,6 +34,7 @@ async def build_post_vote_context(
     sess: Dict[str, Any],
     session_id: str,
     user_message: str,
+    search_enabled: bool = False,
 ) -> Dict[str, Any]:
     """Build context needed for post-vote chat streaming.
 
@@ -201,6 +202,15 @@ async def build_post_vote_context(
             "tokens": total_tokens
         }))
 
+    if search_enabled:
+        from arena.tools.web_search import search_web, format_search_context
+        results = await search_web(user_message)
+        search_ctx = format_search_context(user_message, results)
+        if search_ctx:
+            messages.insert(1, {"role": "user", "content": search_ctx})
+            messages.insert(2, {"role": "assistant", "content": "I'll reference these search results in my response."})
+            total_tokens = sum(_count_tokens(msg["content"]) for msg in messages)
+
     return {
         "winner_side": winner_side,
         "winner_model_id": winner_model_id,
@@ -212,6 +222,7 @@ async def build_post_vote_context(
         "comment": comment,
         "post_vote_turns": post_vote_turns,
         "total_tokens": total_tokens,
+        "search_enabled": search_enabled,
         "user_id": sess.get("user_id"),
     }
 

@@ -31,6 +31,9 @@ interface ConversationTurnBlockProps {
   // Winner side for styling loser
   winnerSide?: "left" | "right" | null;
 
+  // Error state
+  error?: string;
+
   className?: string;
 }
 
@@ -52,12 +55,20 @@ export function ConversationTurnBlock({
   isRevealed,
   judgeLoading,
   winnerSide,
+  error,
   className,
 }: ConversationTurnBlockProps) {
   return (
     <div className={cn("mb-8", className)}>
       {/* User Message - Full Width, Right Aligned */}
       <UserMessageBubble message={userMessage} className="mb-4" />
+
+      {/* Error Display - Show when error exists */}
+      {error && (
+        <div className="mb-4 rounded-xl border border-red-400/30 bg-red-500/10 p-4">
+          <p className="text-sm text-red-300">生成失败: {error}</p>
+        </div>
+      )}
 
       {/* AI Responses - Side by Side */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 min-h-[400px]">

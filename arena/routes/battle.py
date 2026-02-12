@@ -33,6 +33,7 @@ router = APIRouter()
 async def battle(req: Request, body: Dict[str, Any] = Body(...)) -> StreamingResponse:
     prompt = (body.get("prompt") or "").strip()
     model_key = (body.get("model_key") or "").strip() or None  # NEW: user-selected model
+    search_enabled = bool(body.get("search_enabled", False))
 
     # M-04: Input validation
     is_valid, error_msg = _validate_user_input(prompt)
@@ -58,7 +59,7 @@ async def battle(req: Request, body: Dict[str, Any] = Body(...)) -> StreamingRes
     async def event_stream() -> AsyncIterator[bytes]:
         try:
             yield _sse_comment("init")
-            async for chunk in _battle_sse(req, prompt, session_id, model_key):
+            async for chunk in _battle_sse(req, prompt, session_id, model_key, search_enabled=search_enabled):
                 yield chunk
         except Exception as exc:
             # Phase 8.2: Unified SSE frame schema - error frame
@@ -83,6 +84,7 @@ async def continue_battle(req: Request, body: Dict[str, Any] = Body(...)) -> Str
     session_id = (body.get("session_id") or "").strip()
     user_message = (body.get("user_message") or "").strip()
     model_key = (body.get("model_key") or "").strip() or None
+    search_enabled = bool(body.get("search_enabled", False))
 
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id is required")
@@ -253,6 +255,19 @@ async def continue_battle(req: Request, body: Dict[str, Any] = Body(...)) -> Str
             left_messages = left_context.copy()
             right_messages = right_context.copy()
 
+            # Web search injection (if enabled)
+            if search_enabled:
+                from arena.tools.web_search import search_web, format_search_context
+                results = await search_web(user_message)
+                search_ctx = format_search_context(user_message, results)
+                if search_ctx:
+                    ctx_user = {"role": "user", "content": search_ctx}
+                    ctx_ack = {"role": "assistant", "content": "I'll reference these search results in my response."}
+                    left_messages.insert(1, ctx_user)
+                    left_messages.insert(2, ctx_ack)
+                    right_messages.insert(1, ctx_user)
+                    right_messages.insert(2, ctx_ack)
+
             # Add current user message to both sides
             left_messages.append({"role": "user", "content": user_message})
             right_messages.append({"role": "user", "content": user_message})
@@ -272,6 +287,7 @@ async def continue_battle(req: Request, body: Dict[str, Any] = Body(...)) -> Str
                 "turn": turn_count + 1,
                 "tokens_used": max(total_tokens_left, total_tokens_right),
                 "history_truncated": history_truncated,
+                "search_enabled": search_enabled,
             }
             if isinstance(comment, str) and comment.strip():
                 meta["classifier_comment"] = comment.strip()

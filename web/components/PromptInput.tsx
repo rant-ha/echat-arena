@@ -12,6 +12,10 @@ interface PromptInputProps {
   containerClassName?: string;
   /** Variant: "default" for battle page, "home" for ChatGPT-style home page */
   variant?: "default" | "home";
+  /** Whether web search is enabled */
+  searchEnabled?: boolean;
+  /** Callback to toggle web search */
+  onSearchToggle?: () => void;
 }
 
 export function PromptInput({
@@ -20,6 +24,8 @@ export function PromptInput({
   placeholder = "Message Model Arena...",
   containerClassName,
   variant = "default",
+  searchEnabled,
+  onSearchToggle,
 }: PromptInputProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -118,9 +124,21 @@ export function PromptInput({
         {/* Bottom Toolbar (Visual Only for Aesthetics) */}
         <div className="flex items-center justify-between px-4 pb-2.5">
           <div className="flex items-center gap-1">
-             <button type="button" className="p-1.5 rounded-lg text-text-muted hover:bg-surface-elevated hover:text-text-primary transition-colors" title="Search">
-                <Globe className="h-4 w-4" />
-             </button>
+             {onSearchToggle && (
+               <button
+                 type="button"
+                 onClick={onSearchToggle}
+                 className={cn(
+                   "p-1.5 rounded-lg transition-colors",
+                   searchEnabled
+                     ? "bg-interactive-accent/20 text-interactive-accent"
+                     : "text-text-muted hover:bg-surface-elevated hover:text-text-primary"
+                 )}
+                 title={searchEnabled ? "Search enabled (click to disable)" : "Enable web search"}
+               >
+                 <Globe className="h-4 w-4" />
+               </button>
+             )}
              <button type="button" className="p-1.5 rounded-lg text-text-muted hover:bg-surface-elevated hover:text-text-primary transition-colors" title="Image">
                 <Image className="h-4 w-4" />
              </button>
