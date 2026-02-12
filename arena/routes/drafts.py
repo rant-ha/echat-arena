@@ -385,7 +385,8 @@ async def vote_draft(session_id: str, body: Dict[str, Any] = Body(...), backgrou
                 "strategy_name": model_config.get("strategy_name"),
                 "base_model_name": draft.get("model_a") or "unknown",
             }
-            session_restored = await _SESSION_STORE.put_or_update(session_id, restored_session)
+            await _SESSION_STORE.put(session_id, restored_session)
+            session_restored = True
             if not session_restored:
                 log_error("draft_session_restore_failed", {
                     "session_id": session_id,
@@ -492,7 +493,8 @@ async def restore_draft(session_id: str) -> JSONResponse:
 
         # 4. Restore session to memory store
         _SESSION_STORE = get_state().session_store
-        session_restored = await _SESSION_STORE.put_or_update(session_id, restored_session)
+        await _SESSION_STORE.put(session_id, restored_session)
+        session_restored = True
 
         if not session_restored:
             log_error("draft_restore_failed", {
