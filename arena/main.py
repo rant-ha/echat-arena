@@ -18,10 +18,13 @@ from arena.config import (
     ARCHIVE_INTERVAL_HOURS,
     DRIVE_CREDS_JSON,
     DRIVE_FOLDER_ID,
+    REDIS_URL,
+    REDIS_SESSION_TTL_SEC,
+    REDIS_MAX_CONNECTIONS,
 )
 from arena.utils import _utc_now_iso, _json_dumps
 from arena.state import get_state
-from arena.session import SupabaseSessionStore, SessionStore
+from arena.session import SupabaseSessionStore, SessionStore, RedisSessionStore, HybridSessionStore
 from arena.archive import _run_archive_once
 from arena.db.client import close_supabase_client
 from arena.db.compensation import compensation_queue
@@ -65,7 +68,42 @@ def create_app() -> FastAPI:
     async def _startup() -> None:
         state = get_state()
         store_mode = os.environ.get("ARENA_SESSION_STORE", "memory").lower()
-        if store_mode == "supabase":
+
+        # --- Redis (L1) + optional Supabase (L2) hybrid ---
+        if store_mode == "redis" and REDIS_URL and RedisSessionStore is not None:
+            try:
+                redis_store = RedisSessionStore(
+                    redis_url=REDIS_URL,
+                    ttl_sec=REDIS_SESSION_TTL_SEC,
+                    max_connections=REDIS_MAX_CONNECTIONS,
+                )
+                if SUPABASE_URL and SUPABASE_SERVICE_KEY and HybridSessionStore is not None:
+                    supabase_store = SupabaseSessionStore()
+                    state.session_store = HybridSessionStore(redis_store, supabase_store)
+                    print(_json_dumps({"t": _utc_now_iso(), "type": "session_store_initialized", "mode": "hybrid", "l1": "redis", "l2": "supabase"}))
+                else:
+                    state.session_store = redis_store
+                    print(_json_dumps({"t": _utc_now_iso(), "type": "session_store_initialized", "mode": "redis"}))
+
+                # Initialize compensation queue
+                compensation_queue.set_insert_fn(_insert_post_vote_turn_supabase)
+                compensation_queue.load_from_backup()
+            except Exception as exc:
+                print(_json_dumps({
+                    "t": _utc_now_iso(),
+                    "type": "redis_session_store_init_failed",
+                    "error": str(exc),
+                }), file=sys.stderr)
+                # Fall back to supabase or memory
+                if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+                    state.session_store = SupabaseSessionStore()
+                    print(_json_dumps({"t": _utc_now_iso(), "type": "session_store_initialized", "mode": "supabase", "reason": "redis_fallback"}))
+                else:
+                    state.session_store = SessionStore()
+                    print(_json_dumps({"t": _utc_now_iso(), "type": "session_store_initialized", "mode": "memory", "reason": "redis_fallback"}))
+
+        # --- Supabase only ---
+        elif store_mode == "supabase":
             if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
                 print(_json_dumps({
                     "t": _utc_now_iso(),
@@ -110,6 +148,7 @@ def create_app() -> FastAPI:
                         "error": str(exc)
                     }), file=sys.stderr)
                     state.session_store = SessionStore()
+        # --- Memory only ---
         else:
             print(_json_dumps({"t": _utc_now_iso(), "type": "session_store_initialized", "mode": "memory"}))
 
@@ -155,6 +194,16 @@ def create_app() -> FastAPI:
                 print(_json_dumps({"t": _utc_now_iso(), "type": "shutdown_compensation_recovered", "count": recovered}))
         except Exception as exc:
             print(_json_dumps({"t": _utc_now_iso(), "type": "shutdown_compensation_error", "error": str(exc)}), file=sys.stderr)
+
+        # Close Redis connection pool if hybrid/redis store is active
+        state = get_state()
+        close_fn = getattr(state.session_store, "close", None)
+        if close_fn and callable(close_fn):
+            try:
+                await close_fn()
+                print(_json_dumps({"t": _utc_now_iso(), "type": "redis_connection_pool_closed"}))
+            except Exception as exc:
+                print(_json_dumps({"t": _utc_now_iso(), "type": "redis_close_error", "error": str(exc)}), file=sys.stderr)
 
         # Close shared HTTP client
         await close_supabase_client()

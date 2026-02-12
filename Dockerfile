@@ -24,6 +24,9 @@ RUN apt-get update \
     # 4.2 Token 计数工具（H-02 修复）：tiktoken 用于精确的 token 计数
     && pip install --no-cache-dir tiktoken \
     \
+    # 4.3 Redis 缓存层（Phase 3）：redis[hiredis] 用于 L1 session 缓存
+    && pip install --no-cache-dir "redis[hiredis]" \
+    \
     # 5. 安装 FastChat WebUI
     && pip install --no-cache-dir "fschat[webui]" \
     \

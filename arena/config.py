@@ -46,6 +46,13 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
 # ---------------------------------------------------------------------------
+# Redis (optional L1 session cache)
+# ---------------------------------------------------------------------------
+REDIS_URL = os.environ.get("REDIS_URL", "")
+REDIS_SESSION_TTL_SEC = int(os.environ.get("ARENA_REDIS_SESSION_TTL_SEC", "3600"))
+REDIS_MAX_CONNECTIONS = int(os.environ.get("ARENA_REDIS_MAX_CONNECTIONS", "20"))
+
+# ---------------------------------------------------------------------------
 # Archive to Google Drive (optional)
 # ---------------------------------------------------------------------------
 _ARCHIVE_ENABLED_RAW = os.environ.get("ARCHIVE_ENABLED", "0").strip().lower()
