@@ -1,10 +1,12 @@
 """Shared httpx client for Supabase REST API calls."""
 
+from typing import Optional
+
 import httpx
 
 from arena.config import SUPABASE_SERVICE_KEY, REQUEST_TIMEOUT
 
-_client: httpx.AsyncClient | None = None
+_client: Optional[httpx.AsyncClient] = None
 
 
 def get_supabase_client() -> httpx.AsyncClient:
