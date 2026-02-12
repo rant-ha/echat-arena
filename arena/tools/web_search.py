@@ -19,7 +19,7 @@ async def search_web(
 ) -> List[Dict[str, str]]:
     """DuckDuckGo async search, returns [{title, href, body}, ...].
 
-    - Uses duckduckgo_search.AsyncDDGS
+    - Uses duckduckgo_search.DDGS via asyncio.to_thread
     - asyncio.wait_for timeout protection
     - Module-level rate limiting (>=1s interval)
     - Any exception returns empty list (best-effort)
@@ -34,20 +34,16 @@ async def search_web(
             await asyncio.sleep(_MIN_INTERVAL - elapsed)
         _last_search_ts = time.monotonic()
 
-        from duckduckgo_search import AsyncDDGS
+        from duckduckgo_search import DDGS
 
-        async def _do_search():
-            async with AsyncDDGS() as ddgs:
-                results = []
-                async for r in ddgs.text(query, max_results=max_results):
-                    results.append({
-                        "title": r.get("title", ""),
-                        "href": r.get("href", ""),
-                        "body": r.get("body", ""),
-                    })
-                return results
+        def _do_search():
+            with DDGS() as ddgs:
+                return [
+                    {"title": r.get("title", ""), "href": r.get("href", ""), "body": r.get("body", "")}
+                    for r in ddgs.text(query, max_results=max_results)
+                ]
 
-        return await asyncio.wait_for(_do_search(), timeout=timeout_sec)
+        return await asyncio.wait_for(asyncio.to_thread(_do_search), timeout=timeout_sec)
     except Exception as exc:
         log_error("web_search_failed", {"query": query[:100]}, exc)
         return []
