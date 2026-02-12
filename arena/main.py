@@ -70,37 +70,58 @@ def create_app() -> FastAPI:
         store_mode = os.environ.get("ARENA_SESSION_STORE", "memory").lower()
 
         # --- Redis (L1) + optional Supabase (L2) hybrid ---
-        if store_mode == "redis" and REDIS_URL and RedisSessionStore is not None:
-            try:
-                redis_store = RedisSessionStore(
-                    redis_url=REDIS_URL,
-                    ttl_sec=REDIS_SESSION_TTL_SEC,
-                    max_connections=REDIS_MAX_CONNECTIONS,
-                )
-                if SUPABASE_URL and SUPABASE_SERVICE_KEY and HybridSessionStore is not None:
-                    supabase_store = SupabaseSessionStore()
-                    state.session_store = HybridSessionStore(redis_store, supabase_store)
-                    print(_json_dumps({"t": _utc_now_iso(), "type": "session_store_initialized", "mode": "hybrid", "l1": "redis", "l2": "supabase"}))
-                else:
-                    state.session_store = redis_store
-                    print(_json_dumps({"t": _utc_now_iso(), "type": "session_store_initialized", "mode": "redis"}))
+        if store_mode == "redis":
+            if REDIS_URL and RedisSessionStore is not None:
+                try:
+                    redis_store = RedisSessionStore(
+                        redis_url=REDIS_URL,
+                        ttl_sec=REDIS_SESSION_TTL_SEC,
+                        max_connections=REDIS_MAX_CONNECTIONS,
+                    )
+                    if SUPABASE_URL and SUPABASE_SERVICE_KEY and HybridSessionStore is not None:
+                        supabase_store = SupabaseSessionStore()
+                        state.session_store = HybridSessionStore(redis_store, supabase_store)
+                        print(_json_dumps({"t": _utc_now_iso(), "type": "session_store_initialized", "mode": "hybrid", "l1": "redis", "l2": "supabase"}))
+                    else:
+                        state.session_store = redis_store
+                        print(_json_dumps({"t": _utc_now_iso(), "type": "session_store_initialized", "mode": "redis"}))
 
-                # Initialize compensation queue
-                compensation_queue.set_insert_fn(_insert_post_vote_turn_supabase)
-                compensation_queue.load_from_backup()
-            except Exception as exc:
+                    # Initialize compensation queue
+                    compensation_queue.set_insert_fn(_insert_post_vote_turn_supabase)
+                    compensation_queue.load_from_backup()
+                except Exception as exc:
+                    print(_json_dumps({
+                        "t": _utc_now_iso(),
+                        "type": "redis_session_store_init_failed",
+                        "error": str(exc),
+                    }), file=sys.stderr)
+                    # Fall back to supabase or memory
+                    if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+                        state.session_store = SupabaseSessionStore()
+                        print(_json_dumps({"t": _utc_now_iso(), "type": "session_store_initialized", "mode": "supabase", "reason": "redis_init_error"}))
+                        compensation_queue.set_insert_fn(_insert_post_vote_turn_supabase)
+                        compensation_queue.load_from_backup()
+                    else:
+                        state.session_store = SessionStore()
+                        print(_json_dumps({"t": _utc_now_iso(), "type": "session_store_initialized", "mode": "memory", "reason": "redis_init_error"}))
+            else:
+                # Redis requested but package missing or REDIS_URL not set — degrade gracefully
+                _reason = "redis_package_missing" if RedisSessionStore is None else "redis_url_missing"
                 print(_json_dumps({
                     "t": _utc_now_iso(),
-                    "type": "redis_session_store_init_failed",
-                    "error": str(exc),
+                    "type": "redis_unavailable",
+                    "reason": _reason,
+                    "REDIS_URL": bool(REDIS_URL),
+                    "RedisSessionStore": RedisSessionStore is not None,
                 }), file=sys.stderr)
-                # Fall back to supabase or memory
                 if SUPABASE_URL and SUPABASE_SERVICE_KEY:
                     state.session_store = SupabaseSessionStore()
-                    print(_json_dumps({"t": _utc_now_iso(), "type": "session_store_initialized", "mode": "supabase", "reason": "redis_fallback"}))
+                    print(_json_dumps({"t": _utc_now_iso(), "type": "session_store_initialized", "mode": "supabase", "reason": _reason}))
+                    compensation_queue.set_insert_fn(_insert_post_vote_turn_supabase)
+                    compensation_queue.load_from_backup()
                 else:
                     state.session_store = SessionStore()
-                    print(_json_dumps({"t": _utc_now_iso(), "type": "session_store_initialized", "mode": "memory", "reason": "redis_fallback"}))
+                    print(_json_dumps({"t": _utc_now_iso(), "type": "session_store_initialized", "mode": "memory", "reason": _reason}))
 
         # --- Supabase only ---
         elif store_mode == "supabase":
