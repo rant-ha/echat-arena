@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { Swords, RotateCcw, Menu, X } from "lucide-react";
 import { useBattleStream } from "@/hooks/useBattleStream";
-import { usePostVoteChat } from "@/hooks/usePostVoteChat";
 import { ConversationTurnBlock } from "@/components/ConversationTurnBlock";
 import type { AiJudgeScores } from "@/components/AIResponseCard";
 import { VoteButtons, VoteChoice } from "@/components/VoteButtons";
@@ -13,8 +12,6 @@ import { useRef } from "react";
 import { PromptInput } from "@/components/PromptInput";
 import { Sidebar } from "@/components/Sidebar";
 import { ModelSelector } from "@/components/ModelSelector";
-import { MarkdownRenderer } from "@/components/MarkdownRenderer";
-import { ThinkingIndicator } from "@/components/ThinkingIndicator";
 import { cn } from "@/components/ui";
 import { createSupabaseBrowserClient } from "@/utils/supabase/client";
 
@@ -160,56 +157,11 @@ export default function BattlePage() {
     result: null,
   });
 
-  // ===== Post-vote chat via shared Hook =====
-  const {
-    turns: postVoteTurns,
-    currentReply: postVoteCurrentReply,
-    isChatting: isPostVoteChatting,
-    pendingMessage: postVotePendingMessage,
-    isVoted: isPostVoteRestored,
-    preVoteConversation,
-    winnerSide,
-    sendMessage: postVoteSendMessage,
-    setVoteContext,
-    clearVoteState: clearPostVoteState,
-  } = usePostVoteChat({
-    sessionId: meta?.session_id || null,
-    localStorageKey: "postVoteState",
-  });
-
-  // Restore conversation history from preVoteConversation (after page refresh)
-  useEffect(() => {
-    if (!preVoteConversation || conversationHistory.length > 0) return;
-    const conv = preVoteConversation;
-    const history = conv.conversation_history?.length > 0
-      ? conv.conversation_history
-      : conv.prompt
-        ? [{ turn: 1, user: conv.prompt, reply_a: conv.reply_a || "", reply_b: conv.reply_b || "" }]
-        : [];
-    if (history.length > 0) {
-      setConversationHistory(history);
-      setPrompt(conv.prompt || "");
-    }
-  }, [preVoteConversation, conversationHistory.length]);
-
-  // Sync isRevealed from Hook restoration
-  useEffect(() => {
-    if (isPostVoteRestored && !voteState.isRevealed) {
-      setVoteState(prev => ({ ...prev, isRevealed: true }));
-    }
-  }, [isPostVoteRestored, voteState.isRevealed]);
-
   const handleSubmitPrompt = useCallback(
     (inputPrompt: string) => {
       setPrompt(inputPrompt);
 
-      // Post-vote chat branch
-      if (voteState.isRevealed && winnerSide) {
-        postVoteSendMessage(inputPrompt);
-        return;
-      }
-
-      // Already voted but no winner — don't allow
+      // Already voted — don't allow
       if (voteState.isRevealed) {
         return;
       }
@@ -219,7 +171,6 @@ export default function BattlePage() {
 
       // Only reset vote state on first turn
       if (currentTurn === 0) {
-        clearPostVoteState();
         setVoteState({
           choice: null,
           isSubmitting: false,
@@ -239,7 +190,7 @@ export default function BattlePage() {
         continueConversation(meta.session_id, inputPrompt);
       }
     },
-    [startBattle, continueConversation, currentTurn, meta?.session_id, voteState.isRevealed, winnerSide, postVoteSendMessage, selectedModelKey, defaultModelKey, clearPostVoteState]
+    [startBattle, continueConversation, currentTurn, meta?.session_id, voteState.isRevealed, selectedModelKey, defaultModelKey]
   );
 
   // 保存草稿到数据库
@@ -405,9 +356,13 @@ export default function BattlePage() {
           result: payload ? { ...payload, winner } : null,
         }));
 
-        // Set vote context in Hook (handles localStorage persistence + history fetch)
+        // 投票成功后跳转
         if (winner && payload?.vote_id) {
-          setVoteContext(payload.vote_id, winner);
+          // 跳转到 /chat/[vote_id] 继续对话
+          setTimeout(() => router.push(`/chat/${payload.vote_id}`), 800);
+        } else if (choice === "tie" || choice === "both_bad") {
+          // tie/both_bad: 延迟跳转到历史页
+          setTimeout(() => router.push("/history"), 1500);
         }
 
         // 删除草稿（已投票）
@@ -425,11 +380,10 @@ export default function BattlePage() {
         }));
       }
     },
-    [meta, prompt, setVoteContext]
+    [meta, prompt, router]
   );
 
   const handleReset = useCallback(() => {
-    clearPostVoteState();
     reset();
     setPrompt("");
     setVoteState({
@@ -442,7 +396,7 @@ export default function BattlePage() {
     setConversationHistory([]);
     setCurrentTurn(0);
     setTurnWarning(false);
-  }, [reset, clearPostVoteState]);
+  }, [reset]);
 
   const isStreaming = status === "streaming";
   const isDone = status === "done";
@@ -495,7 +449,7 @@ export default function BattlePage() {
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (chatContainerRef.current && (isStreaming || conversationHistory.length > 0 || postVoteTurns.length > 0 || isPostVoteChatting)) {
+    if (chatContainerRef.current && (isStreaming || conversationHistory.length > 0)) {
       const timer = setTimeout(() => {
         chatContainerRef.current?.scrollTo({
           top: chatContainerRef.current.scrollHeight,
@@ -504,7 +458,7 @@ export default function BattlePage() {
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [conversationHistory.length, leftText, rightText, isStreaming, postVoteTurns.length, postVoteCurrentReply, isPostVoteChatting]);
+  }, [conversationHistory.length, leftText, rightText, isStreaming]);
 
   return (
     <div className="flex h-screen bg-surface-primary text-text-primary overflow-hidden">
@@ -578,7 +532,7 @@ export default function BattlePage() {
         <main ref={chatContainerRef} className="flex-1 overflow-y-auto relative scrollbar-thin">
           <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 pb-40">
             <AnimatePresence mode="wait">
-              {status === "idle" && !hasContent && !isPostVoteRestored && (
+              {status === "idle" && !hasContent && (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -608,7 +562,7 @@ export default function BattlePage() {
               </motion.div>
             )}
 
-            {(hasContent || isStreaming || isPostVoteRestored) && (
+            {(hasContent || isStreaming) && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -646,7 +600,7 @@ export default function BattlePage() {
                     leftJudgeScores={judgeScoresLeft}
                     rightJudgeScores={judgeScoresRight}
                     judgeLoading={voteState.isSubmitting}
-                    winnerSide={winnerSide}
+                    winnerSide={null}
                   />
                 ))}
 
@@ -695,73 +649,6 @@ export default function BattlePage() {
                     </motion.div>
                   )}
                 </AnimatePresence>
-
-                {/* ===== Post-vote chat — FULL WIDTH ===== */}
-                {voteState.isRevealed && winnerSide && (
-                  <div className="mt-6 space-y-4">
-                    {/* Divider */}
-                    <div className="flex items-center gap-3 py-2">
-                      <div className="flex-1 h-px bg-border-faint" />
-                      <span className="text-xs font-medium text-interactive-accent uppercase tracking-wider">
-                        Continued Chat with Winner
-                      </span>
-                      <div className="flex-1 h-px bg-border-faint" />
-                    </div>
-
-                    {/* Persisted post-vote turns */}
-                    {postVoteTurns.map((turn) => (
-                      <div key={`pv-${turn.turn_index}`} className="space-y-4">
-                        {/* User message */}
-                        <div className="flex justify-end">
-                          <div className="max-w-[85%] rounded-2xl bg-surface-elevated px-4 py-3 text-text-primary">
-                            <div className="prose prose-sm prose-invert max-w-none break-words">
-                              <MarkdownRenderer>{turn.user_message}</MarkdownRenderer>
-                            </div>
-                          </div>
-                        </div>
-                        {/* Assistant reply */}
-                        <div className="flex justify-start w-full">
-                          <div className="w-full max-w-[85%] rounded-xl text-text-secondary">
-                            <div className="prose prose-sm prose-invert max-w-none break-words">
-                              <MarkdownRenderer>{turn.assistant_message}</MarkdownRenderer>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-
-                    {/* Pending user message (sent but not yet saved) */}
-                    {postVotePendingMessage && (
-                      <div className="flex justify-end">
-                        <div className="max-w-[85%] rounded-2xl bg-surface-elevated px-4 py-3 text-text-primary">
-                          <div className="prose prose-sm prose-invert max-w-none break-words">
-                            <MarkdownRenderer>{postVotePendingMessage}</MarkdownRenderer>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Streaming reply or thinking indicator */}
-                    {(postVoteCurrentReply || isPostVoteChatting) && (
-                      <div className="flex justify-start w-full">
-                        <div className="w-full max-w-[85%] rounded-xl text-text-secondary">
-                          <div className="prose prose-sm prose-invert max-w-none break-words">
-                            {postVoteCurrentReply ? (
-                              <>
-                                <MarkdownRenderer>{postVoteCurrentReply}</MarkdownRenderer>
-                                {isPostVoteChatting && (
-                                  <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-interactive-accent align-middle" />
-                                )}
-                              </>
-                            ) : (
-                              <ThinkingIndicator showSkeleton={false} />
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
               </motion.div>
             )}
           </div>
@@ -772,17 +659,13 @@ export default function BattlePage() {
           <div className="pointer-events-auto">
             <PromptInput
               onSubmit={handleSubmitPrompt}
-              disabled={isStreaming || isPostVoteChatting || (voteState.isRevealed && !winnerSide)}
+              disabled={isStreaming || voteState.isRevealed}
               placeholder={
                 isStreaming
                   ? "Generating..."
-                  : isPostVoteChatting
-                    ? "Generating..."
-                    : voteState.isRevealed && winnerSide
-                      ? "Continue chatting with the winner..."
-                      : voteState.isRevealed
-                        ? "Vote completed. Start a new round."
-                        : "Message Model Arena..."
+                  : voteState.isRevealed
+                    ? "Vote completed — redirecting..."
+                    : "Message Model Arena..."
               }
             />
           </div>

@@ -85,6 +85,9 @@ export default function ChatDetailPage() {
     currentReply,
     isChatting: isStreaming,
     pendingMessage: pendingUserMessage,
+    historyLoaded,
+    historyError,
+    retryHistory,
     sendMessage: handleContinueChat,
   } = usePostVoteChat({
     sessionId: vote?.session_id || null,
@@ -245,6 +248,27 @@ export default function ChatDetailPage() {
                     winnerSide={winnerPosition}
                   />
                 ))}
+
+                {/* Post-vote history loading state */}
+                {canContinue && !historyLoaded && !historyError && (
+                  <div className="flex items-center justify-center py-6">
+                    <p className="text-sm text-[var(--text-muted)]">加载对话历史...</p>
+                  </div>
+                )}
+
+                {/* Post-vote history error state */}
+                {historyError && (
+                  <div className="flex items-center justify-center gap-3 py-6">
+                    <p className="text-sm text-red-400">加载对话历史失败</p>
+                    <button
+                      type="button"
+                      onClick={retryHistory}
+                      className="text-sm text-[var(--text-muted)] underline hover:text-[var(--text-primary)] transition-colors"
+                    >
+                      重试
+                    </button>
+                  </div>
+                )}
 
                 {/* ===== Post-vote chat — FULL WIDTH ===== */}
                 {postTurns.length > 0 && (

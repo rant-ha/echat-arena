@@ -295,9 +295,6 @@ async def post_vote_event_stream(
                 "finish": False
             })
 
-        if await is_disconnected():
-            return
-
         # Ensure any generator exception is retrieved
         assistant_text = await gen_task
 

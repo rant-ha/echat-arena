@@ -36,6 +36,7 @@ interface UsePostVoteChatReturn {
   sendMessage: (message: string) => Promise<void>;
   setVoteContext: (voteId: string, winnerSide: "left" | "right") => void;
   clearVoteState: () => void;
+  retryHistory: () => void;
 }
 
 function dedupTurns(turns: PostVoteTurn[]): PostVoteTurn[] {
@@ -62,6 +63,10 @@ export function usePostVoteChat({
   const [sendError, setSendError] = useState<string | null>(null);
   const [isVoted, setIsVoted] = useState(false);
   const [preVoteConversation, setPreVoteConversation] = useState<UsePostVoteChatReturn["preVoteConversation"]>(null);
+  const [storedSessionId, setStoredSessionId] = useState<string | null>(null);
+
+  // Prop takes priority, localStorage fallback
+  const resolvedSessionId = sessionId || storedSessionId;
 
   // Prevent duplicate fetches
   const fetchingRef = useRef(false);
@@ -85,6 +90,7 @@ export function usePostVoteChat({
       if (vote_id) setVoteId(vote_id);
       setWinnerSide(savedWinner);
       setIsVoted(true);
+      setStoredSessionId(session_id);
     } catch {
       localStorage.removeItem(localStorageKey);
     }
@@ -99,13 +105,13 @@ export function usePostVoteChat({
 
   // 3. Auto-fetch history when voteId is available
   useEffect(() => {
-    if (!sessionId || !voteId || historyLoaded || fetchingRef.current || isChatting) return;
+    if (!resolvedSessionId || !voteId || historyLoaded || fetchingRef.current || isChatting) return;
 
     fetchingRef.current = true;
 
     const fetchHistory = async () => {
       try {
-        const params = new URLSearchParams({ session_id: sessionId });
+        const params = new URLSearchParams({ session_id: resolvedSessionId });
         params.set("vote_id", voteId);
         const res = await fetch(`/api/proxy/api/arena/chat/history?${params.toString()}`);
         if (!res.ok) {
@@ -162,11 +168,11 @@ export function usePostVoteChat({
     };
 
     fetchHistory();
-  }, [sessionId, voteId, historyLoaded, isChatting]);
+  }, [resolvedSessionId, voteId, historyLoaded, isChatting]);
 
   // 4. sendMessage — SSE stream with saved validation
   const sendMessage = useCallback(async (message: string) => {
-    if (!sessionId || isChatting) return;
+    if (!resolvedSessionId || isChatting) return;
 
     setIsChatting(true);
     setPendingMessage(message);
@@ -178,7 +184,7 @@ export function usePostVoteChat({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          session_id: sessionId,
+          session_id: resolvedSessionId,
           vote_id: voteId || undefined,
           user_message: message,
         }),
@@ -294,7 +300,7 @@ export function usePostVoteChat({
     } finally {
       setIsChatting(false);
     }
-  }, [sessionId, voteId, isChatting, localStorageKey]);
+  }, [resolvedSessionId, voteId, isChatting, localStorageKey]);
 
   // 5. setVoteContext — called by parent after voting
   const setVoteContext = useCallback((newVoteId: string, newWinnerSide: "left" | "right") => {
@@ -304,10 +310,10 @@ export function usePostVoteChat({
     setHistoryLoaded(false);
     setHistoryError(null);
 
-    if (localStorageKey && sessionId) {
+    if (localStorageKey && resolvedSessionId) {
       try {
         localStorage.setItem(localStorageKey, JSON.stringify({
-          session_id: sessionId,
+          session_id: resolvedSessionId,
           vote_id: newVoteId,
           winnerSide: newWinnerSide,
           timestamp: Date.now(),
@@ -316,7 +322,7 @@ export function usePostVoteChat({
         // localStorage unavailable
       }
     }
-  }, [localStorageKey, sessionId]);
+  }, [localStorageKey, resolvedSessionId]);
 
   // 6. clearVoteState
   const clearVoteState = useCallback(() => {
@@ -331,6 +337,7 @@ export function usePostVoteChat({
     setSendError(null);
     setIsVoted(false);
     setPreVoteConversation(null);
+    setStoredSessionId(null);
 
     if (localStorageKey) {
       try {
@@ -338,6 +345,13 @@ export function usePostVoteChat({
       } catch {}
     }
   }, [localStorageKey]);
+
+  // 7. retryHistory — allow manual retry of history fetch
+  const retryHistory = useCallback(() => {
+    setHistoryLoaded(false);
+    setHistoryError(null);
+    fetchingRef.current = false;
+  }, []);
 
   return {
     voteId,
@@ -354,5 +368,6 @@ export function usePostVoteChat({
     sendMessage,
     setVoteContext,
     clearVoteState,
+    retryHistory,
   };
 }
