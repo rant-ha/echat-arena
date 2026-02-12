@@ -4,6 +4,7 @@ import type React from "react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import TurnstileCaptcha from "@/components/TurnstileCaptcha";
+import GoogleLoginButton from "@/components/GoogleLoginButton";
 import { createSupabaseBrowserClient } from "@/utils/supabase/client";
 import { Button, Card, ErrorText, Input, Label } from "@/components/ui";
 
@@ -60,7 +61,20 @@ export default function LoginClient(props: { nextPath: string }) {
           <h1 className="text-xl font-semibold">登录</h1>
           <p className="mt-1 text-sm text-muted">使用邮箱 + 密码登录</p>
 
-          <form className="mt-6 space-y-4" onSubmit={onSubmit}>
+          <div className="mt-6">
+            <GoogleLoginButton />
+          </div>
+
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-border"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="bg-card px-2 text-muted">或</span>
+            </div>
+          </div>
+
+          <form className="space-y-4" onSubmit={onSubmit}>
             <div>
               <Label htmlFor="email">邮箱</Label>
               <Input

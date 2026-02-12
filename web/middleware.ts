@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 // Public paths that don't require user authentication
-const PUBLIC_PATHS = new Set(["/login", "/register", "/auth/verify", "/auth/error"]);
+const PUBLIC_PATHS = new Set(["/login", "/register", "/auth/verify", "/auth/error", "/auth/callback"]);
 
 // Admin paths - handled separately from user auth
 const ADMIN_PREFIX = "/admin";
