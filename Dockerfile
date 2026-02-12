@@ -4,7 +4,7 @@ WORKDIR /app
 # 1-6. 依赖安装（尽量收敛层数，避免无用系统包进入最终镜像）
 # 说明：保留 google-api-python-client/google-auth 用于 Drive API 上传 CSV（符合“上传文件到 Drive”而非实时写 Sheets）。
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential \
+    && apt-get install -y --no-install-recommends build-essential libxml2-dev libxslt-dev \
     \
     # 2. 【核心修复】锁定 Pydantic 和 HF Hub 版本
     # Pydantic 必须锁定在 2.8.2，否则新版生成的 Schema 会搞崩 Gradio
@@ -28,7 +28,7 @@ RUN apt-get update \
     && pip install --no-cache-dir "redis[hiredis]" \
     \
     # 4.4 Web search (optional, user-toggled DuckDuckGo search augmentation)
-    && pip install --no-cache-dir duckduckgo-search \
+    && pip install --no-cache-dir "duckduckgo-search==8.1.1" \
     \
     # 5. 安装 FastChat WebUI
     && pip install --no-cache-dir "fschat[webui]" \
@@ -38,7 +38,8 @@ RUN apt-get update \
     && pip install --no-cache-dir "gradio==4.44.1" \
     \
     # 尽量移除构建工具，减小最终镜像体积
-    && apt-get purge -y --auto-remove build-essential \
+    && apt-get purge -y build-essential \
+    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . .
