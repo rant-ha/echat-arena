@@ -48,7 +48,7 @@ SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 # ---------------------------------------------------------------------------
 # Redis (optional L1 session cache)
 # ---------------------------------------------------------------------------
-REDIS_URL = os.environ.get("REDIS_URL", "")
+REDIS_URL = os.environ.get("REDIS_URL", "") or os.environ.get("REDISCLOUD_URL", "")
 REDIS_SESSION_TTL_SEC = int(os.environ.get("ARENA_REDIS_SESSION_TTL_SEC", "3600"))
 REDIS_MAX_CONNECTIONS = int(os.environ.get("ARENA_REDIS_MAX_CONNECTIONS", "20"))
 
