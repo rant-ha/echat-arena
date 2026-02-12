@@ -156,6 +156,16 @@ class SessionStore:
                 return 0
             return item.get("turn_count", 0)
 
+    async def _build_side_context(self, session_data: Dict[str, Any], side: str) -> List[Dict[str, str]]:
+        """Build single-side context for a model."""
+        if side not in ('left', 'right'):
+            raise ValueError(f"Invalid side: {side}")
+        side_data = session_data.get(side, {})
+        context = side_data.get('context', [])
+        if not isinstance(context, list):
+            context = []
+        return context
+
     async def _gc_locked(self) -> None:
         # TTL
         now = time.time()
