@@ -72,6 +72,8 @@ export default function ChatDetailPage() {
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
+  const [userAvatarUrl, setUserAvatarUrl] = useState<string | null>(null);
 
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
@@ -98,6 +100,9 @@ export default function ChatDetailPage() {
     const supabase = createSupabaseBrowserClient();
     supabase.auth.getUser().then(({ data }) => {
       if (data.user?.email) setUserEmail(data.user.email);
+      const meta = data.user?.user_metadata;
+      if (meta?.full_name) setUserName(meta.full_name);
+      if (meta?.avatar_url) setUserAvatarUrl(meta.avatar_url);
     });
   }, []);
 
@@ -152,7 +157,7 @@ export default function ChatDetailPage() {
       {/* Desktop sidebar */}
       <div className="hidden md:block md:w-[260px] md:shrink-0">
         <div className="sticky top-0 h-screen">
-          <Sidebar className="h-screen" userEmail={userEmail} />
+          <Sidebar className="h-screen" userEmail={userEmail} userName={userName} userAvatarUrl={userAvatarUrl} />
         </div>
       </div>
 
@@ -166,7 +171,7 @@ export default function ChatDetailPage() {
             onClick={closeSidebar}
           />
           <div className="absolute left-0 top-0 h-full w-[86vw] max-w-[320px]">
-            <Sidebar className="h-full" onNavigate={closeSidebar} userEmail={userEmail} />
+            <Sidebar className="h-full" onNavigate={closeSidebar} userEmail={userEmail} userName={userName} userAvatarUrl={userAvatarUrl} />
           </div>
         </div>
       )}

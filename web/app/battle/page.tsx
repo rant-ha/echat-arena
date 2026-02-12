@@ -59,6 +59,8 @@ export default function BattlePage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
+  const [userAvatarUrl, setUserAvatarUrl] = useState<string | null>(null);
 
   const [bootstrappedFromQuery, setBootstrappedFromQuery] = useState(false);
 
@@ -71,6 +73,9 @@ export default function BattlePage() {
      const supabase = createSupabaseBrowserClient();
      supabase.auth.getUser().then(({ data }) => {
        if (data.user?.email) setUserEmail(data.user.email);
+       const meta = data.user?.user_metadata;
+       if (meta?.full_name) setUserName(meta.full_name);
+       if (meta?.avatar_url) setUserAvatarUrl(meta.avatar_url);
      });
   }, []);
 
@@ -472,6 +477,8 @@ export default function BattlePage() {
         <Sidebar
           className="h-full"
           userEmail={userEmail}
+          userName={userName}
+          userAvatarUrl={userAvatarUrl}
           collapsed={sidebarCollapsed}
           onToggleCollapse={toggleSidebarCollapse}
         />
@@ -487,7 +494,7 @@ export default function BattlePage() {
             onClick={closeSidebar}
           />
           <div className="absolute left-0 top-0 h-full w-[80vw] max-w-[300px]">
-            <Sidebar className="h-full" onNavigate={closeSidebar} userEmail={userEmail} />
+            <Sidebar className="h-full" onNavigate={closeSidebar} userEmail={userEmail} userName={userName} userAvatarUrl={userAvatarUrl} />
           </div>
         </div>
       )}

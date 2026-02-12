@@ -49,12 +49,14 @@ interface SidebarProps {
   className?: string;
   onNavigate?: () => void;
   userEmail?: string | null;
+  userName?: string | null;
+  userAvatarUrl?: string | null;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }
 
 export function Sidebar(props: SidebarProps) {
-  const { className, onNavigate, userEmail, collapsed = false, onToggleCollapse } = props;
+  const { className, onNavigate, userEmail, userName, userAvatarUrl, collapsed = false, onToggleCollapse } = props;
 
   const { data, error, isLoading } = useSWR<RecentVoteRow[]>(
     "sidebar:recent-votes",
@@ -166,13 +168,22 @@ export function Sidebar(props: SidebarProps) {
           )}
           title={userEmail || "Guest"}
         >
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-elevated text-xs font-medium text-text-primary ring-1 ring-border-faint">
-            {userInitials}
-          </div>
+          {userAvatarUrl ? (
+            <img
+              src={userAvatarUrl}
+              alt=""
+              referrerPolicy="no-referrer"
+              className="h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-border-faint"
+            />
+          ) : (
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-elevated text-xs font-medium text-text-primary ring-1 ring-border-faint">
+              {userInitials}
+            </div>
+          )}
           {!collapsed && (
             <div className="flex min-w-0 flex-col">
               <span className="truncate text-sm font-medium text-text-primary">
-                {userEmail ? userEmail.split('@')[0] : "Guest"}
+                {userName || (userEmail ? userEmail.split('@')[0] : "Guest")}
               </span>
               <span className="truncate text-xs text-text-muted">
                 {userEmail || "Login to save history"}
