@@ -23,7 +23,9 @@ from arena.classifier import _classify_emotion
 from arena.db.post_vote import (
     _insert_post_vote_turn_supabase,
     _fetch_post_vote_turns_supabase,
+    InsertStatus,
 )
+from arena.db.compensation import compensation_queue
 from arena.services.battle import _generate_stream_to_queue
 from arena.state import get_state
 
@@ -302,24 +304,42 @@ async def post_vote_event_stream(
         base_turn_index = len(post_vote_turns) + 1
 
         MAX_TURN_INDEX_RETRIES = 8
+        MAX_SAME_INDEX_RETRIES = 3
         saved_turn_index: Optional[int] = None
+        last_status: Optional[InsertStatus] = None
+
         for i in range(MAX_TURN_INDEX_RETRIES):
             candidate = base_turn_index + i
-            status = await _insert_post_vote_turn_supabase(
-                vote_id=vote_id,
-                winner_side=winner_side,
-                turn_index=candidate,
-                user_message=user_message,
-                assistant_message=assistant_text,
-                user_id=user_id,
-            )
-            if status == "ok":
-                saved_turn_index = candidate
+            same_index_attempts = 0
+
+            while same_index_attempts < MAX_SAME_INDEX_RETRIES:
+                status = await _insert_post_vote_turn_supabase(
+                    vote_id=vote_id,
+                    winner_side=winner_side,
+                    turn_index=candidate,
+                    user_message=user_message,
+                    assistant_message=assistant_text,
+                    user_id=user_id,
+                )
+                last_status = status
+
+                if status == InsertStatus.OK:
+                    saved_turn_index = candidate
+                    break
+                elif status == InsertStatus.CONFLICT:
+                    break  # try next turn_index
+                elif status == InsertStatus.RETRYABLE:
+                    same_index_attempts += 1
+                    backoff = min(0.1 * (2 ** same_index_attempts), 2.0) + random.random() * 0.1
+                    await asyncio.sleep(backoff)
+                    continue
+                else:  # NON_RETRYABLE
+                    break
+
+            if saved_turn_index is not None:
                 break
-            if status == "conflict":
-                await asyncio.sleep(0.05 + random.random() * 0.05)
-                continue
-            break
+            if last_status == InsertStatus.NON_RETRYABLE:
+                break
 
         if saved_turn_index is not None:
             print(
@@ -347,6 +367,15 @@ async def post_vote_event_stream(
                 ),
                 file=sys.stderr,
             )
+            # Enqueue for background retry via compensation queue
+            await compensation_queue.enqueue({
+                "vote_id": vote_id,
+                "winner_side": winner_side,
+                "turn_index": base_turn_index,
+                "user_message": user_message,
+                "assistant_message": assistant_text,
+                "user_id": user_id,
+            })
 
         # Phase 8.2: Unified SSE frame schema - finish frame (sent after DB write)
         yield _sse_data({

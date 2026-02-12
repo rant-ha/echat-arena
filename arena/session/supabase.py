@@ -14,6 +14,7 @@ from arena.config import (
     _SESSION_TTL_SEC,
     _SESSION_CACHE_TTL_SEC, _SESSION_STORE_MODE, _SESSION_ALLOW_FALLBACK,
 )
+from arena.db.client import get_supabase_client
 from arena.session.base import SessionStore
 from arena.utils import _utc_now_iso, _json_dumps
 
@@ -101,23 +102,23 @@ class SupabaseSessionStore(SessionStore):
         headers = self._get_headers()
 
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(url, headers=headers, timeout=self._request_timeout)
-                if resp.status_code >= 400:
-                    print(_json_dumps({
-                        "t": _utc_now_iso(),
-                        "type": "supabase_get_error",
-                        "session_id": session_id,
-                        "status": resp.status_code,
-                        "error": resp.text
-                    }), file=sys.stderr)
-                    return None
+            client = get_supabase_client()
+            resp = await client.get(url, headers=headers, timeout=self._request_timeout)
+            if resp.status_code >= 400:
+                print(_json_dumps({
+                    "t": _utc_now_iso(),
+                    "type": "supabase_get_error",
+                    "session_id": session_id,
+                    "status": resp.status_code,
+                    "error": resp.text
+                }), file=sys.stderr)
+                return None
 
-                data = resp.json()
-                if not data:
-                    return None
+            data = resp.json()
+            if not data:
+                return None
 
-                return data[0]
+            return data[0]
         except Exception as exc:
             print(_json_dumps({
                 "t": _utc_now_iso(),
@@ -174,45 +175,45 @@ class SupabaseSessionStore(SessionStore):
         headers = self._get_headers()
 
         try:
-            async with httpx.AsyncClient() as client:
-                if create_if_not_exists:
-                    # Use POST for creation (upsert behavior)
-                    resp = await client.post(
-                        url,
-                        headers=headers,
-                        json=update_data,
-                        timeout=self._request_timeout
-                    )
-                else:
-                    # Use PATCH for updates
-                    resp = await client.patch(
-                        url,
-                        headers=headers,
-                        json=update_data,
-                        timeout=self._request_timeout
-                    )
+            client = get_supabase_client()
+            if create_if_not_exists:
+                # Use POST for creation (upsert behavior)
+                resp = await client.post(
+                    url,
+                    headers=headers,
+                    json=update_data,
+                    timeout=self._request_timeout
+                )
+            else:
+                # Use PATCH for updates
+                resp = await client.patch(
+                    url,
+                    headers=headers,
+                    json=update_data,
+                    timeout=self._request_timeout
+                )
 
-                if resp.status_code < 400:
-                    return True
+            if resp.status_code < 400:
+                return True
 
-                # Log detailed error for debugging
-                error_details = {
-                    "t": _utc_now_iso(),
-                    "type": "supabase_cas_update_error",
-                    "session_id": session_id,
-                    "old_version": old_version,
-                    "new_version": old_version + 1,
-                    "status": resp.status_code,
-                    "response": resp.text,
-                    "method": "POST" if create_if_not_exists else "PATCH"
-                }
+            # Log detailed error for debugging
+            error_details = {
+                "t": _utc_now_iso(),
+                "type": "supabase_cas_update_error",
+                "session_id": session_id,
+                "old_version": old_version,
+                "new_version": old_version + 1,
+                "status": resp.status_code,
+                "response": resp.text,
+                "method": "POST" if create_if_not_exists else "PATCH"
+            }
 
-                # Check for version conflict (common case)
-                if resp.status_code == 409 or "version" in (resp.text or "").lower():
-                    error_details["reason"] = "version_conflict"
+            # Check for version conflict (common case)
+            if resp.status_code == 409 or "version" in (resp.text or "").lower():
+                error_details["reason"] = "version_conflict"
 
-                print(_json_dumps(error_details), file=sys.stderr)
-                return False
+            print(_json_dumps(error_details), file=sys.stderr)
+            return False
         except Exception as exc:
             print(_json_dumps({
                 "t": _utc_now_iso(),
@@ -683,27 +684,27 @@ class SupabaseSessionStore(SessionStore):
         headers = self._get_headers()
 
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.patch(
-                    url,
-                    headers=headers,
-                    json={"deleted_at": _utc_now_iso()},
-                    timeout=self._request_timeout
-                )
+            client = get_supabase_client()
+            resp = await client.patch(
+                url,
+                headers=headers,
+                json={"deleted_at": _utc_now_iso()},
+                timeout=self._request_timeout
+            )
 
-                if resp.status_code < 400:
-                    # Clear cache
-                    self._cache_delete(session_id)
-                    return True
+            if resp.status_code < 400:
+                # Clear cache
+                self._cache_delete(session_id)
+                return True
 
-                print(_json_dumps({
-                    "t": _utc_now_iso(),
-                    "type": "supabase_soft_delete_error",
-                    "session_id": session_id,
-                    "status": resp.status_code,
-                    "response": resp.text
-                }), file=sys.stderr)
-                return False
+            print(_json_dumps({
+                "t": _utc_now_iso(),
+                "type": "supabase_soft_delete_error",
+                "session_id": session_id,
+                "status": resp.status_code,
+                "response": resp.text
+            }), file=sys.stderr)
+            return False
         except Exception as exc:
             print(_json_dumps({
                 "t": _utc_now_iso(),
@@ -729,27 +730,27 @@ class SupabaseSessionStore(SessionStore):
         headers = self._get_headers()
 
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.patch(
-                    url,
-                    headers=headers,
-                    json={"deleted_at": None},
-                    timeout=self._request_timeout
-                )
+            client = get_supabase_client()
+            resp = await client.patch(
+                url,
+                headers=headers,
+                json={"deleted_at": None},
+                timeout=self._request_timeout
+            )
 
-                if resp.status_code < 400:
-                    # Clear cache so next get will fetch fresh data
-                    self._cache_delete(session_id)
-                    return True
+            if resp.status_code < 400:
+                # Clear cache so next get will fetch fresh data
+                self._cache_delete(session_id)
+                return True
 
-                print(_json_dumps({
-                    "t": _utc_now_iso(),
-                    "type": "supabase_restore_error",
-                    "session_id": session_id,
-                    "status": resp.status_code,
-                    "response": resp.text
-                }), file=sys.stderr)
-                return False
+            print(_json_dumps({
+                "t": _utc_now_iso(),
+                "type": "supabase_restore_error",
+                "session_id": session_id,
+                "status": resp.status_code,
+                "response": resp.text
+            }), file=sys.stderr)
+            return False
         except Exception as exc:
             print(_json_dumps({
                 "t": _utc_now_iso(),
@@ -771,50 +772,50 @@ class SupabaseSessionStore(SessionStore):
         headers = self._get_headers()
 
         try:
-            async with httpx.AsyncClient() as client:
-                # Get sessions to delete
-                resp = await client.get(url, headers=headers, timeout=self._request_timeout)
-                if resp.status_code >= 400:
+            client = get_supabase_client()
+            # Get sessions to delete
+            resp = await client.get(url, headers=headers, timeout=self._request_timeout)
+            if resp.status_code >= 400:
+                print(_json_dumps({
+                    "t": _utc_now_iso(),
+                    "type": "supabase_cleanup_query_error",
+                    "status": resp.status_code,
+                    "response": resp.text
+                }), file=sys.stderr)
+                return 0
+
+            sessions = resp.json()
+            if not sessions:
+                return 0
+
+            # Extract session IDs
+            session_ids = [s["session_id"] for s in sessions]
+
+            # Delete in batches to avoid URL length limits
+            batch_size = 50
+            deleted_count = 0
+
+            for i in range(0, len(session_ids), batch_size):
+                batch = session_ids[i:i + batch_size]
+                delete_url = f"{self._supabase_url}/rest/v1/arena_sessions?session_id=in.({','.join(batch)})"
+
+                delete_resp = await client.delete(delete_url, headers=headers, timeout=self._request_timeout)
+
+                if delete_resp.status_code < 400:
+                    deleted_count += len(batch)
+                    # Clear cache for deleted sessions
+                    for sid in batch:
+                        self._cache_delete(sid)
+                else:
                     print(_json_dumps({
                         "t": _utc_now_iso(),
-                        "type": "supabase_cleanup_query_error",
-                        "status": resp.status_code,
-                        "response": resp.text
+                        "type": "supabase_cleanup_delete_error",
+                        "batch": f"{i//batch_size + 1}",
+                        "status": delete_resp.status_code,
+                        "response": delete_resp.text
                     }), file=sys.stderr)
-                    return 0
 
-                sessions = resp.json()
-                if not sessions:
-                    return 0
-
-                # Extract session IDs
-                session_ids = [s["session_id"] for s in sessions]
-
-                # Delete in batches to avoid URL length limits
-                batch_size = 50
-                deleted_count = 0
-
-                for i in range(0, len(session_ids), batch_size):
-                    batch = session_ids[i:i + batch_size]
-                    delete_url = f"{self._supabase_url}/rest/v1/arena_sessions?session_id=in.({','.join(batch)})"
-
-                    delete_resp = await client.delete(delete_url, headers=headers, timeout=self._request_timeout)
-
-                    if delete_resp.status_code < 400:
-                        deleted_count += len(batch)
-                        # Clear cache for deleted sessions
-                        for sid in batch:
-                            self._cache_delete(sid)
-                    else:
-                        print(_json_dumps({
-                            "t": _utc_now_iso(),
-                            "type": "supabase_cleanup_delete_error",
-                            "batch": f"{i//batch_size + 1}",
-                            "status": delete_resp.status_code,
-                            "response": delete_resp.text
-                        }), file=sys.stderr)
-
-                return deleted_count
+            return deleted_count
         except Exception as exc:
             print(_json_dumps({
                 "t": _utc_now_iso(),
@@ -860,41 +861,41 @@ class SupabaseSessionStore(SessionStore):
         query_params["offset"] = offset
 
         try:
-            async with httpx.AsyncClient() as client:
-                headers = self._get_headers()
+            client = get_supabase_client()
+            headers = self._get_headers()
 
-                # Get total count
-                count_resp = await client.get(count_url, headers=headers, timeout=self._request_timeout)
-                total_count = 0
-                if count_resp.status_code < 400:
-                    count_data = count_resp.json()
-                    total_count = count_data[0]["count"] if count_data else 0
+            # Get total count
+            count_resp = await client.get(count_url, headers=headers, timeout=self._request_timeout)
+            total_count = 0
+            if count_resp.status_code < 400:
+                count_data = count_resp.json()
+                total_count = count_data[0]["count"] if count_data else 0
 
-                # Get sessions
-                query_str = "&".join([f"{k}={v}" for k, v in query_params.items()])
-                list_url = f"{self._supabase_url}/rest/v1/arena_sessions?{query_str}"
+            # Get sessions
+            query_str = "&".join([f"{k}={v}" for k, v in query_params.items()])
+            list_url = f"{self._supabase_url}/rest/v1/arena_sessions?{query_str}"
 
-                list_resp = await client.get(list_url, headers=headers, timeout=self._request_timeout)
+            list_resp = await client.get(list_url, headers=headers, timeout=self._request_timeout)
 
-                if list_resp.status_code >= 400:
-                    return {
-                        "success": False,
-                        "error": f"Failed to fetch sessions: {list_resp.text}",
-                        "total": total_count,
-                        "page": page,
-                        "page_size": page_size,
-                        "sessions": []
-                    }
-
-                sessions = list_resp.json()
-
+            if list_resp.status_code >= 400:
                 return {
-                    "success": True,
+                    "success": False,
+                    "error": f"Failed to fetch sessions: {list_resp.text}",
                     "total": total_count,
                     "page": page,
                     "page_size": page_size,
-                    "sessions": sessions
+                    "sessions": []
                 }
+
+            sessions = list_resp.json()
+
+            return {
+                "success": True,
+                "total": total_count,
+                "page": page,
+                "page_size": page_size,
+                "sessions": sessions
+            }
         except Exception as exc:
             return {
                 "success": False,

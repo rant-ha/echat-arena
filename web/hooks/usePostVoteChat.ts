@@ -46,6 +46,8 @@ function dedupTurns(turns: PostVoteTurn[]): PostVoteTurn[] {
 }
 
 const EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const TURNS_CACHE_KEY_PREFIX = "echat_pv_turns_";
+const MAX_CACHED_TURNS = 50;
 
 export function usePostVoteChat({
   sessionId,
@@ -102,6 +104,24 @@ export function usePostVoteChat({
       setVoteId(initialVoteId);
     }
   }, [initialVoteId, localStorageKey]);
+
+  // 2.5. Restore cached turns from localStorage (instant display before DB fetch)
+  useEffect(() => {
+    if (!voteId) return;
+    try {
+      const key = `${TURNS_CACHE_KEY_PREFIX}${voteId}`;
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      const { turns: cached, ts } = JSON.parse(raw);
+      if (Date.now() - ts > EXPIRY_MS) {
+        localStorage.removeItem(key);
+        return;
+      }
+      if (Array.isArray(cached) && cached.length > 0) {
+        setTurns(prev => prev.length > 0 ? prev : dedupTurns(cached));
+      }
+    } catch { /* parse error — ignore */ }
+  }, [voteId]);
 
   // 3. Auto-fetch history when voteId is available
   useEffect(() => {
@@ -169,6 +189,16 @@ export function usePostVoteChat({
 
     fetchHistory();
   }, [resolvedSessionId, voteId, historyLoaded, isChatting]);
+
+  // 3.5. Cache turns to localStorage whenever they change
+  useEffect(() => {
+    if (!voteId || turns.length === 0) return;
+    try {
+      const key = `${TURNS_CACHE_KEY_PREFIX}${voteId}`;
+      const data = { turns: turns.slice(-MAX_CACHED_TURNS), ts: Date.now() };
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch { /* quota exceeded — ignore */ }
+  }, [voteId, turns]);
 
   // 4. sendMessage — SSE stream with saved validation
   const sendMessage = useCallback(async (message: string) => {
@@ -326,6 +356,10 @@ export function usePostVoteChat({
 
   // 6. clearVoteState
   const clearVoteState = useCallback(() => {
+    // Clear turns cache before resetting state
+    if (voteId) {
+      try { localStorage.removeItem(`${TURNS_CACHE_KEY_PREFIX}${voteId}`); } catch {}
+    }
     setVoteId(null);
     setWinnerSide(null);
     setTurns([]);
@@ -344,7 +378,7 @@ export function usePostVoteChat({
         localStorage.removeItem(localStorageKey);
       } catch {}
     }
-  }, [localStorageKey]);
+  }, [localStorageKey, voteId]);
 
   // 7. retryHistory — allow manual retry of history fetch
   const retryHistory = useCallback(() => {

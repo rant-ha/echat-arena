@@ -4,6 +4,8 @@ import os
 import sys
 from datetime import datetime
 
+import httpx
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -21,6 +23,9 @@ from arena.utils import _utc_now_iso, _json_dumps
 from arena.state import get_state
 from arena.session import SupabaseSessionStore, SessionStore
 from arena.archive import _run_archive_once
+from arena.db.client import close_supabase_client
+from arena.db.compensation import compensation_queue
+from arena.db.post_vote import _insert_post_vote_turn_supabase
 
 from arena.routes import health, config_routes, battle, vote, chat, drafts, sessions
 from arena.routes.admin import auth as admin_auth
@@ -75,6 +80,29 @@ def create_app() -> FastAPI:
                     ss = SupabaseSessionStore()
                     state.session_store = ss
                     print(_json_dumps({"t": _utc_now_iso(), "type": "session_store_initialized", "mode": "supabase"}))
+                    # Supabase connectivity health check (non-blocking)
+                    try:
+                        async with httpx.AsyncClient() as hc_client:
+                            health_url = f"{SUPABASE_URL}/rest/v1/"
+                            resp = await hc_client.get(health_url, headers={
+                                "apikey": SUPABASE_SERVICE_KEY,
+                                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                            }, timeout=10)
+                            if resp.status_code < 400:
+                                print(_json_dumps({"t": _utc_now_iso(), "type": "supabase_health_ok"}))
+                            else:
+                                print(_json_dumps({
+                                    "t": _utc_now_iso(), "type": "supabase_health_warning",
+                                    "status": resp.status_code
+                                }), file=sys.stderr)
+                    except Exception as hc_exc:
+                        print(_json_dumps({
+                            "t": _utc_now_iso(), "type": "supabase_health_failed",
+                            "error": str(hc_exc)
+                        }), file=sys.stderr)
+                    # Initialize compensation queue for failed write retries
+                    compensation_queue.set_insert_fn(_insert_post_vote_turn_supabase)
+                    compensation_queue.load_from_backup()
                 except Exception as exc:  # pragma: no cover - defensive
                     print(_json_dumps({
                         "t": _utc_now_iso(),
@@ -117,6 +145,20 @@ def create_app() -> FastAPI:
         scheduler.start()
 
         print(_json_dumps({"t": _utc_now_iso(), "type": "startup", "archive": True, "interval_h": ARCHIVE_INTERVAL_HOURS}))
+
+    @application.on_event("shutdown")
+    async def _shutdown() -> None:
+        # Process any remaining compensation queue entries
+        try:
+            recovered = await compensation_queue.process_queue()
+            if recovered:
+                print(_json_dumps({"t": _utc_now_iso(), "type": "shutdown_compensation_recovered", "count": recovered}))
+        except Exception as exc:
+            print(_json_dumps({"t": _utc_now_iso(), "type": "shutdown_compensation_error", "error": str(exc)}), file=sys.stderr)
+
+        # Close shared HTTP client
+        await close_supabase_client()
+        print(_json_dumps({"t": _utc_now_iso(), "type": "shutdown_complete"}))
 
     return application
 
