@@ -86,7 +86,7 @@ export default function GoogleLoginButton({ redirectTo = "/battle" }: GoogleLogi
         width={400}
         text="signin_with"
         shape="rectangular"
-        theme="outline"
+        theme="filled_black"
       />
       {error && <ErrorText>{error}</ErrorText>}
     </div>

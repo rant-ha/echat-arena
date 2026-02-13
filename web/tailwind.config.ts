@@ -26,6 +26,10 @@ const config: Config = {
           faint: "var(--border-faint)",
           strong: "var(--border-strong)",
         },
+        glass: {
+          bg: "var(--glass-bg)",
+          border: "var(--glass-border)",
+        },
         interactive: {
           accent: "var(--interactive-accent)",
           hover: "var(--interactive-hover)",

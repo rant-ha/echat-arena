@@ -95,9 +95,9 @@ export default function RegisterPage() {
 
   if (registrationSuccess) {
     return (
-      <main className="min-h-screen bg-background px-4 py-16 text-foreground">
+      <main className="min-h-screen bg-surface-primary px-4 py-16 text-text-primary">
         <div className="mx-auto w-full max-w-md">
-          <Card>
+          <Card className="glass-surface noise-overlay auth-card-enter bg-glass-bg border-glass-border">
             {/* 邮件图标 */}
             <div className="flex justify-center mb-4">
               <div className="h-16 w-16 rounded-full bg-interactive-accent/20 flex items-center justify-center">
@@ -108,13 +108,13 @@ export default function RegisterPage() {
             </div>
 
             <h1 className="text-xl font-semibold text-center">注册成功！</h1>
-            <p className="mt-2 text-sm text-muted text-center">验证邮件已发送至</p>
-            <p className="mt-1 text-sm font-medium text-primary text-center break-all">{registeredEmail}</p>
+            <p className="mt-2 text-sm text-text-muted text-center">验证邮件已发送至</p>
+            <p className="mt-1 text-sm font-medium text-interactive-accent text-center break-all">{registeredEmail}</p>
 
             {/* 验证步骤 */}
             <div className="mt-6 p-4 rounded-lg bg-surface-secondary border border-border-faint">
               <h2 className="text-sm font-medium mb-3">请按以下步骤完成验证：</h2>
-              <ol className="text-sm text-muted space-y-2 list-decimal list-inside">
+              <ol className="text-sm text-text-muted space-y-2 list-decimal list-inside">
                 <li>打开您的邮箱</li>
                 <li>找到来自我们的验证邮件</li>
                 <li>点击邮件中的验证链接</li>
@@ -122,7 +122,7 @@ export default function RegisterPage() {
               </ol>
             </div>
 
-            <p className="mt-4 text-xs text-muted text-center">没有收到邮件？请检查垃圾邮件文件夹</p>
+            <p className="mt-4 text-xs text-text-muted text-center">没有收到邮件？请检查垃圾邮件文件夹</p>
 
             {/* 操作按钮 */}
             <div className="mt-6 space-y-3">
@@ -145,11 +145,11 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className="min-h-screen bg-background px-4 py-16 text-foreground">
+    <main className="min-h-screen bg-surface-primary px-4 py-16 text-text-primary">
       <div className="mx-auto w-full max-w-md">
-        <Card>
+        <Card className="glass-surface noise-overlay auth-card-enter bg-glass-bg border-glass-border">
           <h1 className="text-xl font-semibold">注册</h1>
-          <p className="mt-1 text-sm text-muted">
+          <p className="mt-1 text-sm text-text-muted">
             仅允许域名：{allowed.join(", ")}
           </p>
 
@@ -161,13 +161,10 @@ export default function RegisterPage() {
             ) : null}
           </div>
 
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="bg-card px-2 text-muted">或</span>
-            </div>
+          <div className="my-6 flex items-center gap-4">
+            <div className="flex-1 border-t border-border-faint" />
+            <span className="text-sm text-text-muted">或</span>
+            <div className="flex-1 border-t border-border-faint" />
           </div>
 
           <form className="space-y-4" onSubmit={onSubmit}>
@@ -204,13 +201,13 @@ export default function RegisterPage() {
 
             {error ? <ErrorText>{error}</ErrorText> : null}
 
-            <Button type="submit" disabled={loading} className="w-full">
+            <Button type="submit" disabled={loading} className="w-full hover:border-interactive-accent/50 hover:text-white">
               {loading ? "注册中..." : "注册"}
             </Button>
 
-            <div className="text-center text-sm text-muted">
+            <div className="text-center text-sm text-text-muted">
               已有账号？{" "}
-              <a className="text-primary hover:underline" href="/login">
+              <a className="text-interactive-accent hover:underline" href="/login">
                 去登录
               </a>
             </div>

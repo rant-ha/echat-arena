@@ -58,11 +58,11 @@ export default function LoginClient(props: { nextPath: string; errorCode: string
   }
 
   return (
-    <main className="min-h-screen bg-background px-4 py-16 text-foreground">
+    <main className="min-h-screen bg-surface-primary px-4 py-16 text-text-primary">
       <div className="mx-auto w-full max-w-md">
-        <Card>
+        <Card className="glass-surface noise-overlay auth-card-enter bg-glass-bg border-glass-border">
           <h1 className="text-xl font-semibold">登录</h1>
-          <p className="mt-1 text-sm text-muted">使用邮箱 + 密码登录</p>
+          <p className="mt-1 text-sm text-text-muted">使用邮箱 + 密码登录</p>
 
           <div className="mt-6">
             {process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ? (
@@ -72,13 +72,10 @@ export default function LoginClient(props: { nextPath: string; errorCode: string
             ) : null}
           </div>
 
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="bg-card px-2 text-muted">或</span>
-            </div>
+          <div className="my-6 flex items-center gap-4">
+            <div className="flex-1 border-t border-border-faint" />
+            <span className="text-sm text-text-muted">或</span>
+            <div className="flex-1 border-t border-border-faint" />
           </div>
 
           <form className="space-y-4" onSubmit={onSubmit}>
@@ -119,13 +116,13 @@ export default function LoginClient(props: { nextPath: string; errorCode: string
 
             {error ? <ErrorText>{error}</ErrorText> : null}
 
-            <Button type="submit" disabled={loading} className="w-full">
+            <Button type="submit" disabled={loading} className="w-full hover:border-interactive-accent/50 hover:text-white">
               {loading ? "登录中..." : "登录"}
             </Button>
 
-            <div className="text-center text-sm text-muted">
+            <div className="text-center text-sm text-text-muted">
               没有账号？{" "}
-              <a className="text-primary hover:underline" href="/register">
+              <a className="text-interactive-accent hover:underline" href="/register">
                 去注册
               </a>
             </div>
