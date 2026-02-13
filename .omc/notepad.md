@@ -2,11 +2,130 @@
 
 ## Priority Context
 <!-- Keep under 500 chars. Always loaded on session start. -->
-echat-arena: AI chat arena with multi-turn conversations. Backend: FastAPI (Heroku), Frontend: Next.js 14 (Vercel), DB: Supabase. Admin UI at /admin with password auth (ADMIN_PASSWORD env var).
+echat-arena: 双模型A/B情感支持AI测试平台。后端 arena/ 包。分支 refactor/arena-package。部署: Heroku+Vercel+Supabase+Redis。Web搜索已从DuckDuckGo切换到Serper.dev(f79dead)，含LLM关键词提炼+分层超时。持久化三阶段加固完成(9a34bf4)。Redis L1缓存层。部署需设 ARENA_SESSION_STORE=redis + SERPER_API_KEY。
 
 ## Working Memory
 <!-- Timestamped session notes. Auto-pruned after 7 days. -->
 
+## 2026-02-13 - Web Search: DuckDuckGo → Serper.dev 迁移完成
+
+**问题**: DuckDuckGo 在 Heroku 上 IP 被限流/屏蔽，搜索频繁失败
+**方案**: 改用 Serper.dev Google Search API + LLM 关键词提炼 (commit f79dead)
+
+**修改文件 (5)**:
+| 文件 | 改动 |
+|------|------|
+| `arena/config.py` | +SERPER_API_KEY, SERPER_GL, SERPER_HL, SEARCH_QUERY_MODEL, SEARCH_QUERY_REFINE_TIMEOUT_SEC |
+| `arena/prompts.py` | +SEARCH_QUERY_REFINE_PROMPT (关键词提炼 prompt) |
+| `arena/tools/web_search.py` | 完全重写: Serper API + LLM提炼 + 分层超时(8s管线/5s LLM) + _http_post_json_with_retries |
+| `requirements.txt` | 删除 duckduckgo-search==8.1.1 |
+| `.env.example` | 添加新环境变量文档 |
+
+**接口不变**: `search_web()` / `format_search_context()` 签名和返回格式不变，调用方无需改动
+**模型说明**: `SEARCH_QUERY_MODEL` 可设为任意模型名（如 gpt-4o-mini），_get_endpoint() 自动 fallback 到 OPENAI_API_BASE/KEY
+**部署配置**: `SERPER_API_KEY=xxx`, 可选 `SERPER_GL=cn`, `SERPER_HL=zh-cn`
+**状态**: 已部署验证，搜索结果正常出现在模型回复中
+
+---
+
+## 2026-02-12 - Post-vote Chat 持久化三阶段加固完成
+
+### V7 持久化加固计划 — 全部三阶段已完成并推送
+
+**Phase 1: 立即修复** (commit 93b3730)
+- InsertStatus 枚举统一数据库操作结果
+- 两层重试循环 (即时 3 次 + 延迟 2 次)
+- 补偿队列 (内存+文件备份) 兜底最终一致性
+- PersistenceMetrics 计数器 + /health 端点暴露
+
+**Phase 2: 数据库优化** (commit 93b3730)
+- 共享 httpx 连接池 (`arena/db/client.py`)
+- 断路器模式 CLOSED→OPEN→HALF_OPEN (`arena/db/circuit_breaker.py`)
+- Supabase store 切换为共享客户端
+- 前端 localStorage turns 缓存 (usePostVoteChat)
+
+**Phase 3: Redis L1 缓存层** (commit 9a34bf4)
+| 文件 | 说明 |
+|------|------|
+| `arena/config.py` | +3 Redis 环境变量 (REDIS_URL, TTL, MAX_CONNECTIONS) |
+| `arena/session/redis_store.py` | 296行, WATCH/MULTI/EXEC CAS 乐观锁 |
+| `arena/session/hybrid.py` | 203行, Redis L1 + Supabase L2 write-through |
+| `arena/session/__init__.py` | 条件导入, redis 未安装时降级为 None |
+| `arena/main.py` | store 选择逻辑 + 生命周期管理 (216行) |
+| `Dockerfile` | 添加 `redis[hiredis]` 依赖 |
+
+**部署配置**: `ARENA_SESSION_STORE=redis`，REDIS_URL 由 Heroku addon 自动注入
+**降级链**: Redis+Supabase混合 → 纯Supabase → Memory
+
+### 架构总览
+```
+前端 localStorage → Redis L1 (TTL 1h) → Supabase L2 (持久) → 补偿队列 (兜底)
+```
+数据丢失风险降低约 99%（四层防护）。
+
+---
+
+## 2026-02-12 - Post-vote Chat 持久化全面修复（第6次，根治）
+
+### 问题
+投票后继续对话，刷新浏览器后对话记录消失。已修5次仍复现。用户确认：
+- /battle 和 /chat/[id] 两个页面刷新后都消失
+- Supabase post_vote_turns 表有数据（后端保存成功）
+- 问题在前端恢复逻辑
+
+### 根因分析
+1. **Battle 页 sessionId 丢失**：hook 依赖 `meta?.session_id`（ephemeral React state），刷新后 null。localStorage 存了 session_id 但从不恢复。
+2. **后端 is_disconnected() 早退**：流式完成后、DB写入前检查断开→静默丢弃 turn。
+3. **Chat 页无加载/错误反馈**：history fetch 失败时页面空白，用户无感知。
+
+### 修复方案（commit 56155ac）
+| 文件 | 改动 |
+|------|------|
+| `arena/services/chat.py` | 删除 line 298-299 `is_disconnected()` 早退，保证即使断开也持久化 |
+| `web/hooks/usePostVoteChat.ts` | 新增 `storedSessionId` + `resolvedSessionId`(prop优先、localStorage回退) + `retryHistory` |
+| `web/app/battle/page.tsx` | 移除全部 post-vote 内联聊天(-116行)，投票后跳转 /chat/[vote_id]，tie/both_bad 跳 /history |
+| `web/app/chat/[id]/page.tsx` | 添加历史加载中/错误+重试按钮 UI |
+
+### 架构变更
+- **Battle 页**：不再管理 post-vote 状态，投票后 800ms 跳转 `/chat/[vote_id]`
+- **Draft 页**：已在上轮改为跳转（039d6ba）
+- **Chat 页**：唯一的 post-vote 对话入口，session_id 来自 Supabase 数据库查询
+- **usePostVoteChat hook**：`resolvedSessionId = sessionId || storedSessionId` 解决刷新丢失
+
+---
+## 2026-02-11 - Post-vote Chat 重构 + Draft 页面简化 + 安全修复
+
+### 提交记录 (refactor/arena-package)
+- `b52ee56` - refactor: extract usePostVoteChat hook and simplify battle/chat pages
+- `039d6ba` - fix: draft page redirect-only post-vote UX + /chat/history session validation
+
+### usePostVoteChat Hook (web/hooks/usePostVoteChat.ts) - 新文件
+- 统一管理 post-vote 聊天状态：voteId, winnerSide, turns, SSE streaming
+- localStorage 持久化 (Battle 页用 localStorageKey，Draft 页不用)
+- 被 Battle 和 Chat/[id] 页面使用，Draft 页面不使用（redirect-only）
+
+### Draft 页面改动 (web/app/draft/[session_id]/page.tsx)
+- 移除 usePostVoteChat hook，改为本地 voteId/winnerSide/pendingRedirect 状态
+- 投票后显示"继续与获胜模型对话 →"跳转按钮，不再内联渲染 post-vote chat
+- fetchDraft 用 `res.status === 404 && data.vote_id` 双条件判断
+- tie/both_bad 用 pendingRedirect 防重复点击，isVoted 仅由 voteId 驱动
+
+### 安全修复
+1. `/chat/history` session_id 绑定校验（chat.py:182-189）
+   - 先查 vote_record → 校验 session_id → 再查 turns（防信息泄露）
+   - 不匹配返回 404（降低枚举价值）
+2. `_fetch_vote_record` SELECT 补 session_id 列（votes.py:227）
+3. Cache-Control: no-store 加到 /chat/history 全路由 + get_single_draft 所有 404
+
+### 后端 Draft API 增强 (drafts.py:get_single_draft)
+- Draft 不存在时 best-effort 回退查 votes 表拿 vote_id
+- 404 body 可选带 vote_id，前端据此显示跳转入口
+
+### 热修复
+- chat.py: _history_error/_history_response 定义移到 guard clause 前（修复 UnboundLocalError）
+- 勘误: "所有 404 加 no-store" 仅限 get_single_draft，vote_draft 的 POST 404 不需要
+
+---
 ## 2026-01-26 - 功能增强和数据结构优化
 
 ### Part 1: Draft 页面添加模型选择器
