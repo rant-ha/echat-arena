@@ -38,7 +38,7 @@ async def rate_limit(
         pipe.zadd(key, {f"{now}": now})
         pipe.zcard(key)
         pipe.expire(key, window_sec)
-        results = pipe.execute()
+        results = await pipe.execute()
 
         if results[2] > max_requests:
             raise HTTPException(status_code=429, detail="Rate limit exceeded")

@@ -51,9 +51,7 @@ class SupabaseSessionStore(SessionStore):
 
     def _is_supabase_available(self) -> bool:
         """Check if Supabase is configured and available."""
-        return (self._store_mode == "supabase" and
-                self._supabase_url and
-                self._supabase_key)
+        return bool(self._supabase_url and self._supabase_key)
 
     def _is_expired(self, session_data: Dict[str, Any]) -> bool:
         """Check if session is expired based on expires_at."""
