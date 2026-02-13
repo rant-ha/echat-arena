@@ -13,13 +13,15 @@ export async function POST(request: NextRequest) {
   const csrfTokenCookie = request.cookies.get("g_csrf_token")?.value;
   if (!csrfTokenBody || !csrfTokenCookie || csrfTokenBody !== csrfTokenCookie) {
     return NextResponse.redirect(
-      new URL("/auth/error?message=" + encodeURIComponent("CSRF 验证失败"), origin)
+      new URL("/auth/error?message=" + encodeURIComponent("CSRF 验证失败"), origin),
+      303
     );
   }
 
   if (!credential) {
     return NextResponse.redirect(
-      new URL("/auth/error?message=" + encodeURIComponent("缺少 Google 凭证"), origin)
+      new URL("/auth/error?message=" + encodeURIComponent("缺少 Google 凭证"), origin),
+      303
     );
   }
 
@@ -27,7 +29,8 @@ export async function POST(request: NextRequest) {
   const rawNonceCookie = request.cookies.get("google_nonce")?.value;
   if (!rawNonceCookie) {
     return NextResponse.redirect(
-      new URL("/auth/error?message=" + encodeURIComponent("登录超时或 nonce 丢失，请重试"), origin)
+      new URL("/auth/error?message=" + encodeURIComponent("登录超时或 nonce 丢失，请重试"), origin),
+      303
     );
   }
   const rawNonce = decodeURIComponent(rawNonceCookie);
@@ -47,7 +50,8 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       return NextResponse.redirect(
-        new URL("/auth/error?message=" + encodeURIComponent(error.message), origin)
+        new URL("/auth/error?message=" + encodeURIComponent(error.message), origin),
+        303
       );
     }
 
@@ -58,19 +62,21 @@ export async function POST(request: NextRequest) {
     if (providers.includes("google") && domain && domain !== "gmail.com") {
       await supabase.auth.signOut();
       return NextResponse.redirect(
-        new URL("/auth/error?message=" + encodeURIComponent("仅允许 Gmail 邮箱通过 Google 登录"), origin)
+        new URL("/auth/error?message=" + encodeURIComponent("仅允许 Gmail 邮箱通过 Google 登录"), origin),
+        303
       );
     }
 
-    // 6. 重定向到目标页，清理临时 cookie
+    // 6. 重定向到目标页，清理临时 cookie（303 See Other: POST → GET）
     const safePath = next.startsWith("/") && !next.startsWith("//") ? next : "/battle";
-    const response = NextResponse.redirect(new URL(safePath, origin));
+    const response = NextResponse.redirect(new URL(safePath, origin), 303);
     response.cookies.delete("google_nonce");
     response.cookies.delete("google_redirect_to");
     return response;
   } catch {
     return NextResponse.redirect(
-      new URL("/auth/error?message=" + encodeURIComponent("Google 登录失败，请重试"), origin)
+      new URL("/auth/error?message=" + encodeURIComponent("Google 登录失败，请重试"), origin),
+      303
     );
   }
 }
