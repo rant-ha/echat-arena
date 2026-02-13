@@ -1,10 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
-// Public paths that don't require user authentication
-const PUBLIC_PATHS = new Set(["/login", "/register", "/auth/verify", "/auth/error", "/auth/callback"]);
-
-// Admin paths - handled separately from user auth
+const PUBLIC_PATHS = new Set(["/login", "/register", "/auth/verify", "/auth/error", "/auth/callback", "/auth/google-redirect"]);
 const ADMIN_PREFIX = "/admin";
 
 function requiredEnv(name: string): string {
@@ -16,7 +13,6 @@ function requiredEnv(name: string): string {
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Skip next internals/static
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
@@ -25,27 +21,26 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Admin routes - skip Supabase auth, let client-side handle admin auth
-  // This allows the admin section to work independently of user auth
   if (pathname.startsWith(ADMIN_PREFIX)) {
     return NextResponse.next();
   }
 
-  const res = NextResponse.next();
+  let supabaseResponse = NextResponse.next({ request: { headers: req.headers } });
 
   const supabase = createServerClient(
     requiredEnv("NEXT_PUBLIC_SUPABASE_URL"),
     requiredEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
     {
       cookies: {
-        get(name: string) {
-          return req.cookies.get(name)?.value;
+        getAll() {
+          return req.cookies.getAll();
         },
-        set(name: string, value: string, options: any) {
-          res.cookies.set({ name, value, ...options });
-        },
-        remove(name: string, options: any) {
-          res.cookies.set({ name, value: "", ...options, maxAge: 0 });
+        setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
+          cookiesToSet.forEach(({ name, value }) => req.cookies.set(name, value));
+          supabaseResponse = NextResponse.next({ request: { headers: req.headers } });
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options)
+          );
         },
       },
     }
@@ -67,7 +62,7 @@ export async function middleware(req: NextRequest) {
         url.pathname = "/login";
         url.searchParams.set("error", "gmail_only");
         const redirectRes = NextResponse.redirect(url);
-        for (const cookie of res.cookies.getAll()) {
+        for (const cookie of supabaseResponse.cookies.getAll()) {
           redirectRes.cookies.set(cookie);
         }
         return redirectRes;
@@ -82,7 +77,7 @@ export async function middleware(req: NextRequest) {
     const url = req.nextUrl.clone();
     url.pathname = "/battle";
     const redirectRes = NextResponse.redirect(url);
-    for (const cookie of res.cookies.getAll()) {
+    for (const cookie of supabaseResponse.cookies.getAll()) {
       redirectRes.cookies.set(cookie);
     }
     return redirectRes;
@@ -94,13 +89,13 @@ export async function middleware(req: NextRequest) {
     url.pathname = "/login";
     url.searchParams.set("next", pathname);
     const redirectRes = NextResponse.redirect(url);
-    for (const cookie of res.cookies.getAll()) {
+    for (const cookie of supabaseResponse.cookies.getAll()) {
       redirectRes.cookies.set(cookie);
     }
     return redirectRes;
   }
 
-  return res;
+  return supabaseResponse;
 }
 
 export const config = {

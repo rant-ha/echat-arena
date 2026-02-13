@@ -64,6 +64,10 @@ async function proxy(request: Request, ctx: RouteContext) {
   // Forward Supabase JWT to backend for authentication
   try {
     const supabase = createSupabaseServerClient();
+    // 此处使用 getSession() 而非 getUser()：
+    // - getSession() 返回 access_token，用于转发给后端 API
+    // - getUser() 会向 Supabase 服务器验证但不返回 access_token
+    // - 安全性由 middleware（已用 getUser() 验证）和后端 JWT 校验双重保障
     const {
       data: { session },
     } = await supabase.auth.getSession();

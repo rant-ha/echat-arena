@@ -1,9 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { GoogleLogin, CredentialResponse } from "@react-oauth/google";
-import { createSupabaseBrowserClient } from "@/utils/supabase/client";
+import { useState, useEffect } from "react";
+import { GoogleLogin } from "@react-oauth/google";
 import { ErrorText } from "@/components/ui";
 
 interface GoogleLoginButtonProps {
@@ -11,18 +9,27 @@ interface GoogleLoginButtonProps {
 }
 
 export default function GoogleLoginButton({ redirectTo = "/battle" }: GoogleLoginButtonProps) {
-  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
   const [hashedNonce, setHashedNonce] = useState("");
-  const nonceRef = useRef<string>("");
+  const [loginUri, setLoginUri] = useState("");
 
-  // 生成 nonce + SHA-256 哈希
   useEffect(() => {
+    // 生成 nonce
     const rawNonce = btoa(
       String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))
     );
-    nonceRef.current = rawNonce;
 
+    // 存入 cookie（SameSite=None; Secure 保证跨站 POST 能读取；encodeURIComponent 避免 base64 的 +/= 破坏 cookie）
+    document.cookie = `google_nonce=${encodeURIComponent(rawNonce)}; path=/; max-age=300; SameSite=None; Secure`;
+
+    // 构造 login_uri（含 redirect 目标）
+    const safePath = redirectTo.startsWith("/") && !redirectTo.startsWith("//")
+      ? redirectTo : "/battle";
+    const uri = `${window.location.origin}/auth/google-redirect?next=${encodeURIComponent(safePath)}`;
+    setLoginUri(uri);
+
+    // SHA-256 哈希传给 Google（嵌入 ID token）— 全部就绪后才设 ready
     crypto.subtle
       .digest("SHA-256", new TextEncoder().encode(rawNonce))
       .then((buf) => {
@@ -30,57 +37,20 @@ export default function GoogleLoginButton({ redirectTo = "/battle" }: GoogleLogi
           .map((b) => b.toString(16).padStart(2, "0"))
           .join("");
         setHashedNonce(hash);
-      });
-  }, []);
+        setReady(true);
+      })
+      .catch(() => setError("安全初始化失败，请刷新页面重试"));
+  }, [redirectTo]);
 
-  // Google 登录成功回调
-  const handleSuccess = useCallback(
-    async (response: CredentialResponse) => {
-      setError(null);
-      if (!response.credential) {
-        setError("Google 登录未返回凭证");
-        return;
-      }
-
-      try {
-        const supabase = createSupabaseBrowserClient();
-
-        const { data, error: authError } = await supabase.auth.signInWithIdToken({
-          provider: "google",
-          token: response.credential,
-          nonce: nonceRef.current,
-        });
-
-        if (authError) throw authError;
-
-        // 客户端 Gmail-only 快速检查（middleware 有服务端双重检查）
-        const email = data.user?.email || "";
-        const domain = email.split("@")[1]?.toLowerCase();
-        if (domain && domain !== "gmail.com") {
-          await supabase.auth.signOut();
-          setError("仅允许 Gmail 邮箱通过 Google 登录");
-          return;
-        }
-
-        const safePath = redirectTo.startsWith("/") && !redirectTo.startsWith("//")
-          ? redirectTo : "/battle";
-        router.replace(safePath);
-        router.refresh();
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "Google 登录失败";
-        setError(message);
-      }
-    },
-    [redirectTo, router]
-  );
-
-  if (!hashedNonce) return null;
+  if (!ready || !hashedNonce || !loginUri) return null;
 
   return (
     <div>
       <GoogleLogin
         nonce={hashedNonce}
-        onSuccess={handleSuccess}
+        ux_mode="redirect"
+        login_uri={loginUri}
+        onSuccess={() => {}}
         onError={() => setError("Google 登录失败")}
         use_fedcm_for_prompt
         width={400}
