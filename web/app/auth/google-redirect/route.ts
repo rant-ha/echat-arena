@@ -31,7 +31,9 @@ export async function POST(request: NextRequest) {
     );
   }
   const rawNonce = decodeURIComponent(rawNonceCookie);
-  const next = request.nextUrl.searchParams.get("next") || "/battle";
+  const next = request.cookies.get("google_redirect_to")?.value
+    ? decodeURIComponent(request.cookies.get("google_redirect_to")!.value)
+    : "/battle";
 
   try {
     const supabase = createSupabaseServerClient();
@@ -64,6 +66,7 @@ export async function POST(request: NextRequest) {
     const safePath = next.startsWith("/") && !next.startsWith("//") ? next : "/battle";
     const response = NextResponse.redirect(new URL(safePath, origin));
     response.cookies.delete("google_nonce");
+    response.cookies.delete("google_redirect_to");
     return response;
   } catch {
     return NextResponse.redirect(

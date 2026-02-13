@@ -23,11 +23,13 @@ export default function GoogleLoginButton({ redirectTo = "/battle" }: GoogleLogi
     // 存入 cookie（SameSite=None; Secure 保证跨站 POST 能读取；encodeURIComponent 避免 base64 的 +/= 破坏 cookie）
     document.cookie = `google_nonce=${encodeURIComponent(rawNonce)}; path=/; max-age=300; SameSite=None; Secure`;
 
-    // 构造 login_uri（含 redirect 目标）
+    // redirect 目标也存 cookie（login_uri 不能带 query 参数，否则 Google 精确匹配会 400）
     const safePath = redirectTo.startsWith("/") && !redirectTo.startsWith("//")
       ? redirectTo : "/battle";
-    const uri = `${window.location.origin}/auth/google-redirect?next=${encodeURIComponent(safePath)}`;
-    setLoginUri(uri);
+    document.cookie = `google_redirect_to=${encodeURIComponent(safePath)}; path=/; max-age=300; SameSite=None; Secure`;
+
+    // login_uri 必须是干净的 URL，与 Google Console 注册的 Authorized redirect URI 完全一致
+    setLoginUri(`${window.location.origin}/auth/google-redirect`);
 
     // SHA-256 哈希传给 Google（嵌入 ID token）— 全部就绪后才设 ready
     crypto.subtle
