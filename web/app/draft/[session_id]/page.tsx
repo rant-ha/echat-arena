@@ -367,7 +367,7 @@ export default function DraftDetailPage() {
   }, [battleStatus]);
 
   return (
-    <div className="flex min-h-screen bg-[var(--main-bg)] text-[var(--text-primary)]">
+    <div className="flex min-h-screen bg-surface-primary text-text-primary">
       {/* Desktop sidebar */}
       <div className="hidden md:block md:w-[260px] md:shrink-0">
         <div className="sticky top-0 h-screen">
@@ -393,7 +393,7 @@ export default function DraftDetailPage() {
       {/* Main Content */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Header */}
-        <header className="sticky top-0 z-40 flex items-center justify-between px-4 py-3 bg-[var(--main-bg)]/80 backdrop-blur-md border-b border-[var(--border-color)]">
+        <header className="sticky top-0 z-40 flex items-center justify-between px-4 py-3 bg-surface-primary/80 backdrop-blur-md border-b border-border-faint">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -401,8 +401,8 @@ export default function DraftDetailPage() {
               className={cn(
                 "md:hidden",
                 "inline-flex h-10 w-10 items-center justify-center rounded-lg",
-                "hover:bg-white/10 transition-colors",
-                "text-[var(--text-primary)]"
+                "hover:bg-surface-elevated transition-colors",
+                "text-text-primary"
               )}
               aria-label={sidebarOpen ? "Close menu" : "Open menu"}
             >
@@ -414,8 +414,8 @@ export default function DraftDetailPage() {
               onClick={() => router.back()}
               className={cn(
                 "inline-flex h-10 w-10 items-center justify-center rounded-lg",
-                "hover:bg-white/10 transition-colors",
-                "text-[var(--text-primary)]"
+                "hover:bg-surface-elevated transition-colors",
+                "text-text-primary"
               )}
               aria-label="Go back"
             >
@@ -432,11 +432,11 @@ export default function DraftDetailPage() {
             )}
 
             <div>
-              <h1 className="text-sm font-semibold text-[var(--text-primary)]">
+              <h1 className="text-sm font-semibold text-text-primary">
                 {isVoted ? "投票完成" : "草稿详情"}
               </h1>
               {draft && (
-                <p className="text-xs text-[var(--text-muted)]">
+                <p className="text-xs text-text-muted">
                   {formatTime(draft.updated_at)}
                 </p>
               )}
@@ -486,8 +486,8 @@ export default function DraftDetailPage() {
         <main className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
             {loading ? (
-              <div className="rounded-xl border border-[var(--border-color)] p-5">
-                <p className="text-sm text-[var(--text-muted)]">加载中…</p>
+              <div className="rounded-xl border border-border-faint p-5">
+                <p className="text-sm text-text-muted">加载中…</p>
               </div>
             ) : error ? (
               <div className="rounded-xl border border-red-400/30 bg-red-500/10 p-5">
@@ -560,7 +560,7 @@ export default function DraftDetailPage() {
               </div>
             ) : voteId ? (
               <div className="flex flex-col items-center justify-center py-20 space-y-4">
-                <p className="text-sm text-[var(--text-muted)]">此草稿已完成投票</p>
+                <p className="text-sm text-text-muted">此草稿已完成投票</p>
                 <button
                   type="button"
                   onClick={() => router.push(`/chat/${voteId}`)}
@@ -574,8 +574,8 @@ export default function DraftDetailPage() {
                 </button>
               </div>
             ) : (
-              <div className="rounded-xl border border-[var(--border-color)] p-5">
-                <p className="text-sm text-[var(--text-muted)]">草稿不存在</p>
+              <div className="rounded-xl border border-border-faint p-5">
+                <p className="text-sm text-text-muted">草稿不存在</p>
               </div>
             )}
           </div>
@@ -661,7 +661,7 @@ export default function DraftDetailPage() {
               </div>
             ) : voteId ? (
               <div className="mx-auto max-w-3xl text-center space-y-3">
-                <p className="text-sm text-[var(--text-muted)]">
+                <p className="text-sm text-text-muted">
                   投票成功！{winnerSide ? `你选择了 Model ${winnerSide === "left" ? "A" : "B"}` : ""}
                 </p>
                 <button
@@ -678,7 +678,7 @@ export default function DraftDetailPage() {
               </div>
             ) : pendingRedirect ? (
               <div className="mx-auto max-w-2xl text-center">
-                <p className="text-sm text-[var(--text-muted)]">
+                <p className="text-sm text-text-muted">
                   投票成功！即将返回历史记录页面...
                 </p>
               </div>

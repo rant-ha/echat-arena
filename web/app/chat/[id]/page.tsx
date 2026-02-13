@@ -158,7 +158,7 @@ export default function ChatDetailPage() {
   }, [id]);
 
   return (
-    <div className="flex min-h-screen bg-[var(--main-bg)] text-[var(--text-primary)]">
+    <div className="flex min-h-screen bg-surface-primary text-text-primary">
       {/* Desktop sidebar */}
       <div className="hidden md:block md:w-[260px] md:shrink-0">
         <div className="sticky top-0 h-screen">
@@ -184,7 +184,7 @@ export default function ChatDetailPage() {
       {/* Main Content */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Header */}
-        <header className="sticky top-0 z-40 flex items-center justify-between px-4 py-3 bg-[var(--main-bg)]/80 backdrop-blur-md border-b border-[var(--border-color)]">
+        <header className="sticky top-0 z-40 flex items-center justify-between px-4 py-3 bg-surface-primary/80 backdrop-blur-md border-b border-border-faint">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -192,8 +192,8 @@ export default function ChatDetailPage() {
               className={cn(
                 "md:hidden",
                 "inline-flex h-10 w-10 items-center justify-center rounded-lg",
-                "hover:bg-white/10 transition-colors",
-                "text-[var(--text-primary)]"
+                "hover:bg-surface-elevated transition-colors",
+                "text-text-primary"
               )}
               aria-label={sidebarOpen ? "Close menu" : "Open menu"}
             >
@@ -205,8 +205,8 @@ export default function ChatDetailPage() {
               onClick={() => router.back()}
               className={cn(
                 "inline-flex h-10 w-10 items-center justify-center rounded-lg",
-                "hover:bg-white/10 transition-colors",
-                "text-[var(--text-primary)]"
+                "hover:bg-surface-elevated transition-colors",
+                "text-text-primary"
               )}
               aria-label="Go back"
             >
@@ -214,9 +214,9 @@ export default function ChatDetailPage() {
             </button>
 
             <div>
-              <h1 className="text-sm font-semibold text-[var(--text-primary)]">Chat</h1>
+              <h1 className="text-sm font-semibold text-text-primary">Chat</h1>
               {vote && (
-                <p className="text-xs text-[var(--text-muted)]">
+                <p className="text-xs text-text-muted">
                   {formatTime(vote.created_at)}
                 </p>
               )}
@@ -228,8 +228,8 @@ export default function ChatDetailPage() {
         <main className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
             {loading ? (
-              <div className="rounded-xl border border-[var(--border-color)] p-5">
-                <p className="text-sm text-[var(--text-muted)]">加载中…</p>
+              <div className="rounded-xl border border-border-faint p-5">
+                <p className="text-sm text-text-muted">加载中…</p>
               </div>
             ) : error ? (
               <div className="rounded-xl border border-red-400/30 bg-red-500/10 p-5">
@@ -262,7 +262,7 @@ export default function ChatDetailPage() {
                 {/* Post-vote history loading state */}
                 {canContinue && !historyLoaded && !historyError && (
                   <div className="flex items-center justify-center py-6">
-                    <p className="text-sm text-[var(--text-muted)]">加载对话历史...</p>
+                    <p className="text-sm text-text-muted">加载对话历史...</p>
                   </div>
                 )}
 
@@ -273,7 +273,7 @@ export default function ChatDetailPage() {
                     <button
                       type="button"
                       onClick={retryHistory}
-                      className="text-sm text-[var(--text-muted)] underline hover:text-[var(--text-primary)] transition-colors"
+                      className="text-sm text-text-muted underline hover:text-text-primary transition-colors"
                     >
                       重试
                     </button>
@@ -344,8 +344,8 @@ export default function ChatDetailPage() {
                 )}
               </div>
             ) : (
-              <div className="rounded-xl border border-[var(--border-color)] p-5">
-                <p className="text-sm text-[var(--text-muted)]">记录不存在</p>
+              <div className="rounded-xl border border-border-faint p-5">
+                <p className="text-sm text-text-muted">记录不存在</p>
               </div>
             )}
           </div>

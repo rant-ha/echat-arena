@@ -61,7 +61,7 @@ export function VoteButtons({ onVote, disabled, votedChoice }: VoteButtonsProps)
             whileTap={!isDisabled ? { scale: 0.98 } : {}}
             className={cn(
               "group flex items-center justify-center gap-2 rounded-full px-6 py-2.5",
-              "border border-border-strong bg-surface-tertiary",
+              "border border-glass-border bg-glass-bg glass-surface vote-glow",
               "text-sm font-medium text-text-secondary transition-all duration-200",
               "shadow-sm",
               !isDisabled && opt.colorClass,

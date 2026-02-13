@@ -85,7 +85,7 @@ export function PromptInput({
         containerClassName
       )}
     >
-      <div className="relative flex flex-col w-full bg-surface-tertiary rounded-[26px] border border-border-faint shadow-lg focus-within:ring-1 focus-within:ring-border-strong focus-within:border-border-strong transition-all duration-200">
+      <div className="relative flex flex-col w-full bg-glass-bg rounded-[26px] border border-glass-border shadow-lg glass-surface focus-within:ring-1 focus-within:ring-interactive-accent/40 focus-within:border-interactive-accent/50 transition-all duration-200">
         
         {/* Input Area */}
         <div className="flex w-full items-end gap-2 p-3 px-4">
@@ -143,7 +143,7 @@ export function PromptInput({
               <div ref={toolsRef} className="relative">
                 {/* Popover — appears above */}
                 {toolsOpen && (
-                  <div className="absolute bottom-full mb-2 left-0 w-56 rounded-xl border border-border-faint bg-surface-tertiary shadow-lg p-2 z-50">
+                  <div className="absolute bottom-full mb-2 left-0 w-56 rounded-xl border border-glass-border bg-glass-bg glass-surface shadow-lg p-2 z-50">
                     {/* Search Toggle Row */}
                     <button
                       type="button"

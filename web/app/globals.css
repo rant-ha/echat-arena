@@ -4,24 +4,24 @@
 
 @layer base {
   :root {
-    /* LMArena-inspired Zinc Color System */
-    --surface-primary: #09090b;
-    --surface-secondary: #18181b;
-    --surface-tertiary: #27272a;
-    --surface-elevated: #3f3f46;
-    
-    --text-primary: #fafafa;
-    --text-secondary: #a1a1aa;
-    --text-muted: #71717a;
-    
-    --border-faint: #27272a;
-    --border-strong: #3f3f46;
-    
-    --interactive-accent: #3b82f6;
-    --interactive-hover: #2563eb;
+    /* LMArena-inspired Zinc Color System — space-separated RGB channels for Tailwind opacity modifier support */
+    --surface-primary: 9 9 11;
+    --surface-secondary: 24 24 27;
+    --surface-tertiary: 39 39 42;
+    --surface-elevated: 63 63 70;
 
-    --positive: #22c55e;
-    --negative: #ef4444;
+    --text-primary: 250 250 250;
+    --text-secondary: 161 161 170;
+    --text-muted: 113 113 122;
+
+    --border-faint: 39 39 42;
+    --border-strong: 63 63 70;
+
+    --interactive-accent: 59 130 246;
+    --interactive-hover: 37 99 235;
+
+    --positive: 34 197 94;
+    --negative: 239 68 68;
 
     --glass-bg: rgba(24, 24, 27, 0.65);
     --glass-border: rgba(63, 63, 70, 0.45);
@@ -36,8 +36,8 @@
 
   body {
     margin: 0;
-    background-color: var(--surface-primary);
-    color: var(--text-primary);
+    background-color: rgb(var(--surface-primary));
+    color: rgb(var(--text-primary));
     font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -81,8 +81,89 @@
     animation: authCardEnter 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
+  /* ---- Glow effects (pseudo-element + opacity for GPU perf) ---- */
+
+  /* Streaming glow: pulsing blue border glow while AI is generating */
+  .streaming-glow {
+    position: relative;
+  }
+  .streaming-glow::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    box-shadow: 0 0 20px 4px rgba(59, 130, 246, 0.4),
+                inset 0 0 12px rgba(59, 130, 246, 0.1);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 1;
+    animation: glowPulse 2s ease-in-out infinite;
+  }
+
+  /* Streaming subtle: faint static glow while content is streaming */
+  .streaming-subtle {
+    position: relative;
+  }
+  .streaming-subtle::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    box-shadow: 0 0 12px 2px rgba(59, 130, 246, 0.2);
+    opacity: 1;
+    pointer-events: none;
+    z-index: 1;
+    transition: opacity 0.3s ease;
+  }
+
+  /* Winner glow: green pulse on winning card */
+  .winner-glow {
+    position: relative;
+  }
+  .winner-glow::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    box-shadow: 0 0 24px 6px rgba(34, 197, 94, 0.35),
+                0 0 48px 12px rgba(34, 197, 94, 0.15);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 1;
+    animation: glowPulse 1.5s ease-in-out 3;
+  }
+
+  /* Vote button hover glow */
+  .vote-glow {
+    position: relative;
+  }
+  .vote-glow::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.3), 0 0 40px rgba(59, 130, 246, 0.1);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .vote-glow:hover::after {
+    opacity: 1;
+  }
+
+  /* Glass sidebar (slightly less blur than standard glass-surface) */
+  .glass-sidebar {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .auth-card-enter { animation: none; }
+    .streaming-glow::after,
+    .winner-glow::after { animation: none; opacity: 0; }
+    .streaming-subtle::after { opacity: 0; }
+    .vote-glow::after { transition: none; opacity: 0; }
+    .vote-glow:hover::after { opacity: 0; }
   }
 }
 
@@ -97,7 +178,7 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--surface-elevated);
+  background: rgb(var(--surface-elevated));
   border-radius: 3px;
 }
 
@@ -114,6 +195,12 @@
 @keyframes authCardEnter {
   from { opacity: 0; transform: translateY(12px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Shared glow pulse: only animates opacity (GPU-composited, zero repaint) */
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
 }
 
 /* KaTeX dark mode overrides */

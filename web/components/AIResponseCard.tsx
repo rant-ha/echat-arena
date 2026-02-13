@@ -129,18 +129,26 @@ export function AIResponseCard({
         transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
         style={{ transformStyle: "preserve-3d" }}
       >
-        {/* Front Face */}
+        {/* Front Face — glow wrapper (no overflow-hidden, so ::after pseudo-elements render fully) */}
         <div
           className={cn(
-            "absolute inset-0 flex flex-col overflow-hidden",
-            "rounded-xl border border-border-faint bg-surface-tertiary",
-            "shadow-card transition-colors duration-300",
-            isWinner === true && "border-green-500 ring-1 ring-green-500/30"
+            "absolute inset-0 rounded-xl",
+            isStreaming && !hasContent && "streaming-glow",
+            isStreaming && hasContent && "streaming-subtle",
+            isWinner === true && "winner-glow"
           )}
           style={{ backfaceVisibility: "hidden" }}
         >
+          <div
+            className={cn(
+              "flex h-full w-full flex-col overflow-hidden",
+              "rounded-xl border border-glass-border bg-glass-bg",
+              "shadow-card transition-colors duration-300",
+              isWinner === true && "border-positive ring-1 ring-positive/30"
+            )}
+          >
           {/* Header */}
-          <div className="flex h-11 shrink-0 items-center justify-between border-b border-border-faint/50 bg-surface-tertiary px-4">
+          <div className="flex h-11 shrink-0 items-center justify-between border-b border-border-faint/50 bg-transparent px-4">
             <div className="flex items-center gap-2.5">
               {/* Model Icon */}
               <div className={cn(
@@ -174,28 +182,35 @@ export function AIResponseCard({
 
           {/* Content Area */}
           <div
-            className="flex-1 overflow-y-auto touch-pan-y overscroll-contain p-4 relative bg-surface-tertiary"
+            className="flex-1 overflow-y-auto touch-pan-y overscroll-contain p-4 relative bg-transparent"
             style={{ transform: 'translateZ(0)', WebkitOverflowScrolling: 'touch' }}
           >
             {renderContent()}
           </div>
+          </div>
         </div>
 
-        {/* Back Face (Revealed) */}
+        {/* Back Face (Revealed) — glow wrapper */}
         <div
           className={cn(
-            "absolute inset-0 flex flex-col overflow-hidden",
-            "rounded-xl border border-border-faint bg-surface-tertiary",
-            "shadow-card",
-            isWinner === true && "border-green-500 ring-1 ring-green-500/30"
+            "absolute inset-0 rounded-xl",
+            isWinner === true && "winner-glow"
           )}
           style={{
             backfaceVisibility: "hidden",
             transform: "rotateY(180deg)",
           }}
         >
+          <div
+            className={cn(
+              "flex h-full w-full flex-col overflow-hidden",
+              "rounded-xl border border-glass-border bg-glass-bg",
+              "shadow-card",
+              isWinner === true && "border-positive ring-1 ring-positive/30"
+            )}
+          >
           {/* Revealed Header */}
-          <div className="flex h-12 shrink-0 items-center justify-between border-b border-border-faint/50 bg-surface-tertiary px-4">
+          <div className="flex h-12 shrink-0 items-center justify-between border-b border-border-faint/50 bg-transparent px-4">
             <div className="min-w-0 flex flex-col justify-center">
               <div className="flex items-center gap-2">
                 <span className="truncate text-sm font-semibold text-text-primary">
@@ -230,10 +245,11 @@ export function AIResponseCard({
 
           {/* Content Area */}
           <div
-            className="flex-1 overflow-y-auto touch-pan-y overscroll-contain p-4 bg-surface-tertiary"
+            className="flex-1 overflow-y-auto touch-pan-y overscroll-contain p-4 bg-transparent"
             style={{ transform: 'translateZ(0)', WebkitOverflowScrolling: 'touch' }}
           >
             {renderContent()}
+          </div>
           </div>
         </div>
       </motion.div>

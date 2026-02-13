@@ -9,7 +9,7 @@ function ErrorContent() {
   const message = searchParams.get("message") || "验证失败";
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[var(--main-bg)] p-4">
+    <div className="flex min-h-screen items-center justify-center bg-surface-primary p-4">
       <div className="max-w-md w-full rounded-2xl bg-surface-secondary p-8 text-center border border-border-faint">
         {/* Error Icon */}
         <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-negative/10">
@@ -56,7 +56,7 @@ export default function AuthErrorPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-[var(--main-bg)]">
+        <div className="flex min-h-screen items-center justify-center bg-surface-primary">
           <div className="text-text-muted">加载中...</div>
         </div>
       }

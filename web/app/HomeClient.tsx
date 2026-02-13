@@ -67,7 +67,7 @@ export function HomeClient(props: { userEmail?: string | null; userName?: string
   );
 
   return (
-    <div className="flex min-h-screen bg-[var(--main-bg)] text-[var(--text-primary)]">
+    <div className="flex min-h-screen bg-surface-primary text-text-primary">
       {/* Desktop sidebar */}
       <div className="hidden md:block md:w-[260px] md:shrink-0">
         <div className="sticky top-0 h-screen">
@@ -102,8 +102,8 @@ export function HomeClient(props: { userEmail?: string | null; userName?: string
               className={cn(
                 "md:hidden",
                 "inline-flex h-10 w-10 items-center justify-center rounded-lg",
-                "hover:bg-white/10 transition-colors",
-                "text-[var(--text-primary)]"
+                "hover:bg-surface-elevated transition-colors",
+                "text-text-primary"
               )}
               aria-label={sidebarOpen ? "Close menu" : "Open menu"}
             >
@@ -122,7 +122,7 @@ export function HomeClient(props: { userEmail?: string | null; userName?: string
         {/* Main Content - Centered */}
         <main className="flex flex-1 flex-col items-center justify-center px-4 pb-32">
           {/* Welcome text */}
-          <h1 className="mb-8 text-center text-[2.5rem] font-bold text-[var(--text-primary)]">
+          <h1 className="mb-8 text-center text-[2.5rem] font-bold text-text-primary">
             What can I help with?
           </h1>
 

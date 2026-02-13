@@ -100,7 +100,7 @@ export function Sidebar(props: SidebarProps) {
   return (
     <aside
       className={cn(
-        "flex h-full flex-col transition-[width] duration-300 ease-in-out border-r border-border-faint bg-surface-secondary",
+        "flex h-full flex-col transition-[width] duration-300 ease-in-out border-r border-glass-border bg-glass-bg glass-sidebar",
         collapsed ? "w-[60px]" : "w-[260px]",
         className
       )}
@@ -218,7 +218,7 @@ export function Sidebar(props: SidebarProps) {
         {menuOpen && (
           <div
             className={cn(
-              "absolute bottom-full mb-2 rounded-xl border border-border-faint bg-surface-secondary shadow-lg z-50",
+              "absolute bottom-full mb-2 rounded-xl border border-glass-border bg-glass-bg glass-sidebar shadow-lg z-50",
               collapsed ? "left-0 w-48" : "left-2 right-2"
             )}
           >
