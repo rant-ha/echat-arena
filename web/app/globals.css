@@ -84,9 +84,6 @@
   /* ---- Glow effects (pseudo-element + opacity for GPU perf) ---- */
 
   /* Streaming glow: pulsing blue border glow while AI is generating */
-  .streaming-glow {
-    position: relative;
-  }
   .streaming-glow::after {
     content: "";
     position: absolute;
@@ -101,9 +98,6 @@
   }
 
   /* Streaming subtle: faint static glow while content is streaming */
-  .streaming-subtle {
-    position: relative;
-  }
   .streaming-subtle::after {
     content: "";
     position: absolute;
@@ -117,9 +111,6 @@
   }
 
   /* Winner glow: green pulse on winning card */
-  .winner-glow {
-    position: relative;
-  }
   .winner-glow::after {
     content: "";
     position: absolute;
@@ -134,9 +125,6 @@
   }
 
   /* Vote button hover glow */
-  .vote-glow {
-    position: relative;
-  }
   .vote-glow::after {
     content: "";
     position: absolute;

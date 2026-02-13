@@ -81,7 +81,7 @@ export default function ChatDetailPage() {
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
 
-  const canContinue = vote?.user_vote === "model_a" || vote?.user_vote === "model_b";
+  const canContinue = (vote?.user_vote === "model_a" || vote?.user_vote === "model_b") && !!vote?.session_id;
   const winnerPosition = vote ? getVotePosition(vote.user_vote, vote.model_config) : null;
 
   // ===== Post-vote chat via shared Hook =====
@@ -92,6 +92,7 @@ export default function ChatDetailPage() {
     pendingMessage: pendingUserMessage,
     historyLoaded,
     historyError,
+    sendError,
     retryHistory,
     sendMessage: handleContinueChat,
   } = usePostVoteChat({
@@ -339,6 +340,20 @@ export default function ChatDetailPage() {
                           <ThinkingIndicator showSkeleton={false} />
                         )}
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Send error display */}
+                {sendError && !isStreaming && (
+                  <div className="flex justify-start">
+                    <div className="max-w-[85%] rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3">
+                      <p className="text-sm text-red-300">
+                        {sendError === "session_expired" ? "会话已过期，请返回重新开始" :
+                         sendError === "stream_timeout" ? "回复超时，请重试" :
+                         sendError === "save_failed" ? "回复保存失败" :
+                         `发送失败: ${sendError}`}
+                      </p>
                     </div>
                   </div>
                 )}
