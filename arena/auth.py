@@ -1,5 +1,7 @@
 """JWT authentication middleware for Supabase tokens."""
 
+from __future__ import annotations
+
 import logging
 import os
 from fastapi import HTTPException, Request, Depends
