@@ -112,6 +112,8 @@ export interface UseBattleStreamOptions {
 export function useBattleStream(options?: UseBattleStreamOptions) {
   const [state, setState] = useState<BattleState>(initialState);
   const abortRef = useRef<AbortController | null>(null);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   const reset = useCallback(() => {
     if (abortRef.current) {
@@ -178,7 +180,7 @@ export function useBattleStream(options?: UseBattleStreamOptions) {
       const handleFrame = (frame: BattleStreamFrame) => {
         // Handle warning events
         if (frame.type === "warning" && frame.message) {
-          options?.onWarning?.(frame.message);
+          optionsRef.current?.onWarning?.(frame.message);
           return;
         }
 
@@ -196,7 +198,7 @@ export function useBattleStream(options?: UseBattleStreamOptions) {
             if (meta) {
               // Update turn if provided
               if (frame.turn !== undefined) {
-                options?.onTurnUpdate?.(frame.turn);
+                optionsRef.current?.onTurnUpdate?.(frame.turn);
               }
               return { ...prev, meta };
             }
@@ -299,7 +301,7 @@ export function useBattleStream(options?: UseBattleStreamOptions) {
         error: `连接失败，请刷新页面重试 (${message})`,
       }));
     }
-  }, [options]);
+  }, []);
 
   const continueConversation = useCallback(async (sessionId: string, prompt: string, modelKey?: string, searchEnabled?: boolean, retryCount = 0) => {
     const MAX_RETRIES = 3;
@@ -348,7 +350,7 @@ export function useBattleStream(options?: UseBattleStreamOptions) {
       const handleFrame = (frame: BattleStreamFrame) => {
         // Handle warning events
         if (frame.type === "warning" && frame.message) {
-          options?.onWarning?.(frame.message);
+          optionsRef.current?.onWarning?.(frame.message);
           return;
         }
 
@@ -366,7 +368,7 @@ export function useBattleStream(options?: UseBattleStreamOptions) {
             if (meta) {
               // Update turn if provided
               if (frame.turn !== undefined) {
-                options?.onTurnUpdate?.(frame.turn);
+                optionsRef.current?.onTurnUpdate?.(frame.turn);
               }
               return { ...prev, meta };
             }
@@ -469,7 +471,7 @@ export function useBattleStream(options?: UseBattleStreamOptions) {
         error: `连接失败，请刷新页面重试 (${message})`,
       }));
     }
-  }, [options]);
+  }, []);
 
   return {
     ...state,

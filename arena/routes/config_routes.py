@@ -41,6 +41,11 @@ def _check_models_rate_limit(client_ip: str) -> bool:
         t for t in _MODELS_RATE_LIMIT[client_ip]
         if now - t < _MODELS_RATE_LIMIT_WINDOW
     ]
+    # Periodic cleanup: remove stale IP entries to prevent memory leak
+    if len(_MODELS_RATE_LIMIT) > 10000:
+        stale = [ip for ip, times in _MODELS_RATE_LIMIT.items() if not times or now - times[-1] > 3600]
+        for ip in stale:
+            del _MODELS_RATE_LIMIT[ip]
     if len(_MODELS_RATE_LIMIT[client_ip]) >= _MODELS_RATE_LIMIT_MAX:
         return False
     _MODELS_RATE_LIMIT[client_ip].append(now)

@@ -127,6 +127,7 @@ export default function HistoryPage() {
         const { data, error: dbErr } = await supabase
           .from("votes")
           .select("id, created_at, prompt, user_vote, model_config")
+          .eq("user_id", user.id)
           .order("created_at", { ascending: false })
           .limit(100);
 

@@ -41,14 +41,25 @@ from arena.routes.admin import archive as admin_archive
 def create_app() -> FastAPI:
     application = FastAPI(title="Empathy Arena API", version=APP_VERSION)
 
-    # CORS
+    # CORS — reject wildcard origins for security
+    origins = [o for o in ALLOWED_ORIGINS if o.strip() and o.strip() != "*"]
+    if not origins:
+        print("[FATAL] ALLOWED_ORIGINS must be set to specific domains (not '*'). "
+              "Example: ALLOWED_ORIGINS=https://your-app.vercel.app", file=sys.stderr)
+        sys.exit(1)
+
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=["*" if o == "*" else o for o in ALLOWED_ORIGINS] or ["*"],
+        allow_origins=origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Warn if admin password not set
+    from arena.config import ADMIN_PASSWORD
+    if not ADMIN_PASSWORD:
+        print("[WARN] ADMIN_PASSWORD is not set — admin login disabled", file=sys.stderr)
 
     # Include all routers
     application.include_router(health.router)

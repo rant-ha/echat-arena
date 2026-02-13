@@ -5,7 +5,7 @@ import sys
 import uuid
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from arena.config import (
@@ -25,12 +25,15 @@ from arena.models import _get_endpoint
 from arena.classifier import _safe_classify_emotion
 from arena.services.battle import _battle_sse, _generate_stream_for_side
 from arena.state import get_state
+from arena.auth import require_auth
+from arena.ratelimit import rate_limit
 
 router = APIRouter()
 
 
 @router.post(f"{API_PREFIX}/battle")
-async def battle(req: Request, body: Dict[str, Any] = Body(...)) -> StreamingResponse:
+async def battle(req: Request, body: Dict[str, Any] = Body(...), auth: dict = Depends(require_auth)) -> StreamingResponse:
+    await rate_limit(req, "battle", 10, 60)
     prompt = (body.get("prompt") or "").strip()
     model_key = (body.get("model_key") or "").strip() or None  # NEW: user-selected model
     search_enabled = bool(body.get("search_enabled", False))
@@ -62,14 +65,14 @@ async def battle(req: Request, body: Dict[str, Any] = Body(...)) -> StreamingRes
             async for chunk in _battle_sse(req, prompt, session_id, model_key, search_enabled=search_enabled):
                 yield chunk
         except Exception as exc:
-            # Phase 8.2: Unified SSE frame schema - error frame
-            yield _sse_data({"type": "error", "side": "error", "error": str(exc), "finish": True})
+            log_error(error_type="battle_stream_error", context={"session": session_id}, exc=exc)
+            yield _sse_data({"type": "error", "side": "error", "error": "Internal server error", "finish": True})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)
 
 
 @router.post(f"{API_PREFIX}/continue")
-async def continue_battle(req: Request, body: Dict[str, Any] = Body(...)) -> StreamingResponse:
+async def continue_battle(req: Request, body: Dict[str, Any] = Body(...), auth: dict = Depends(require_auth)) -> StreamingResponse:
     """
     处理投票前的多轮对话续写。
 
@@ -81,6 +84,7 @@ async def continue_battle(req: Request, body: Dict[str, Any] = Body(...)) -> Str
 
     返回：SSE 流式响应，格式与 /api/arena/battle 相同
     """
+    await rate_limit(req, "battle", 10, 60)
     session_id = (body.get("session_id") or "").strip()
     user_message = (body.get("user_message") or "").strip()
     model_key = (body.get("model_key") or "").strip() or None
@@ -446,8 +450,8 @@ async def continue_battle(req: Request, body: Dict[str, Any] = Body(...)) -> Str
                 }), file=sys.stderr)
 
         except Exception as exc:
-            # Phase 8.2: Unified SSE frame schema - error frame
-            yield _sse_data({"type": "error", "side": "error", "error": str(exc), "finish": True})
+            log_error(error_type="continue_stream_error", context={"session": session_id}, exc=exc)
+            yield _sse_data({"type": "error", "side": "error", "error": "Internal server error", "finish": True})
             print(_json_dumps({
                 "t": _utc_now_iso(),
                 "type": "continue_exception",

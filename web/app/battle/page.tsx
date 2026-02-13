@@ -257,9 +257,10 @@ export default function BattlePage() {
   // Append to conversation history when a round completes
   useEffect(() => {
     if (status === "done" && prompt && leftText && rightText) {
-      const existingTurn = conversationHistory.find(t => t.turn === (currentTurn || 1));
-      if (!existingTurn) {
-        setConversationHistory(prev => [
+      setConversationHistory(prev => {
+        const existingTurn = prev.find(t => t.turn === (currentTurn || 1));
+        if (existingTurn) return prev;
+        return [
           ...prev,
           {
             turn: currentTurn || 1,
@@ -267,13 +268,13 @@ export default function BattlePage() {
             reply_a: leftText,
             reply_b: rightText,
           }
-        ]);
-        if (currentTurn === 0) {
-          setCurrentTurn(1);
-        }
+        ];
+      });
+      if (currentTurn === 0) {
+        setCurrentTurn(1);
       }
     }
-  }, [status, prompt, leftText, rightText, currentTurn, conversationHistory]);
+  }, [status, prompt, leftText, rightText, currentTurn]);
 
   // 对话完成后自动保存草稿（投票前）
   useEffect(() => {

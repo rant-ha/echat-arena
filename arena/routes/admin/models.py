@@ -7,6 +7,7 @@ import httpx
 from fastapi import APIRouter, Body, Header
 
 from arena.config import API_PREFIX, SUPABASE_URL, SUPABASE_SERVICE_KEY
+from arena.crypto import encrypt_api_key, decrypt_api_key
 from arena.utils import _response, _error, log_error
 from arena.routes.admin.auth import _require_admin_token
 
@@ -76,7 +77,7 @@ async def list_models(
             )
 
             if resp.status_code != 200:
-                return _error(f"Database error: {resp.text}", status=500)
+                return _error("Internal server error", status=500)
 
             models = resp.json()
 
@@ -106,7 +107,7 @@ async def list_models(
 
     except Exception as exc:
         log_error(error_type="list_models_error", context={}, exc=exc)
-        return _error(f"Failed to list models: {str(exc)}", status=500)
+        return _error("Internal server error", status=500)
 
 
 @router.post(f"{API_PREFIX}/admin/models")
@@ -150,7 +151,7 @@ async def create_model(
         "model_name": model_name,
         "api_type": body.get("api_type", "openai"),
         "api_base": body.get("api_base", ""),
-        "api_key_encrypted": body.get("api_key", ""),  # TODO: encrypt in production
+        "api_key_encrypted": encrypt_api_key(body.get("api_key", "")),
         "is_enabled": body.get("is_enabled", True),
         "anony_only": body.get("anony_only", True),
         "weight": body.get("weight", 100),
@@ -174,7 +175,7 @@ async def create_model(
             if resp.status_code == 409:
                 return _error("Model key already exists", status=409)
             if resp.status_code not in (200, 201):
-                return _error(f"Database error: {resp.text}", status=500)
+                return _error("Internal server error", status=500)
 
             result = resp.json()
             created = result[0] if isinstance(result, list) else result
@@ -189,7 +190,7 @@ async def create_model(
 
     except Exception as exc:
         log_error(error_type="create_model_error", context={"model_key": model_key}, exc=exc)
-        return _error(f"Failed to create model: {str(exc)}", status=500)
+        return _error("Internal server error", status=500)
 
 
 @router.put(f"{API_PREFIX}/admin/models/reorder")
@@ -237,7 +238,7 @@ async def reorder_models(
         return _response({"updated": len(orders)})
     except Exception as exc:
         log_error(error_type="reorder_models_error", context={}, exc=exc)
-        return _error(f"Failed to reorder: {str(exc)}", status=500)
+        return _error("Internal server error", status=500)
 
 
 @router.put(f"{API_PREFIX}/admin/models/{{model_id}}")
@@ -277,7 +278,7 @@ async def update_model(
     if "api_base" in body:
         update_data["api_base"] = body["api_base"]
     if "api_key" in body and body["api_key"] is not None:
-        update_data["api_key_encrypted"] = body["api_key"]  # TODO: encrypt
+        update_data["api_key_encrypted"] = encrypt_api_key(body["api_key"])
     if "is_enabled" in body:
         update_data["is_enabled"] = body["is_enabled"]
     if "anony_only" in body:
@@ -309,7 +310,7 @@ async def update_model(
             if resp.status_code == 404:
                 return _error("Model not found", status=404)
             if resp.status_code not in (200, 204):
-                return _error(f"Database error: {resp.text}", status=500)
+                return _error("Internal server error", status=500)
 
             result = resp.json()
             if not result:
@@ -326,7 +327,7 @@ async def update_model(
 
     except Exception as exc:
         log_error(error_type="update_model_error", context={"model_id": model_id}, exc=exc)
-        return _error(f"Failed to update model: {str(exc)}", status=500)
+        return _error("Internal server error", status=500)
 
 
 @router.delete(f"{API_PREFIX}/admin/models/{{model_id}}")
@@ -361,7 +362,7 @@ async def delete_model(
             )
 
             if resp.status_code not in (200, 204):
-                return _error(f"Database error: {resp.text}", status=500)
+                return _error("Internal server error", status=500)
 
             result = resp.json()
             if not result:
@@ -374,7 +375,7 @@ async def delete_model(
 
     except Exception as exc:
         log_error(error_type="delete_model_error", context={"model_id": model_id}, exc=exc)
-        return _error(f"Failed to delete model: {str(exc)}", status=500)
+        return _error("Internal server error", status=500)
 
 
 @router.get(f"{API_PREFIX}/admin/models/{{model_id}}")
@@ -405,7 +406,7 @@ async def get_model(
             )
 
             if resp.status_code != 200:
-                return _error(f"Database error: {resp.text}", status=500)
+                return _error("Internal server error", status=500)
 
             result = resp.json()
             if not result:
@@ -414,7 +415,7 @@ async def get_model(
             model = result[0]
             # Mask API key
             if model.get("api_key_encrypted"):
-                key = model["api_key_encrypted"]
+                key = decrypt_api_key(model["api_key_encrypted"])
                 model["api_key_masked"] = f"****{key[-4:]}" if len(key) > 4 else "****"
             model.pop("api_key_encrypted", None)
 
@@ -422,4 +423,4 @@ async def get_model(
 
     except Exception as exc:
         log_error(error_type="get_model_error", context={"model_id": model_id}, exc=exc)
-        return _error(f"Failed to get model: {str(exc)}", status=500)
+        return _error("Internal server error", status=500)

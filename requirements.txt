@@ -22,6 +22,12 @@ tiktoken
 # Redis session cache (Phase 3, L1 layer)
 redis[hiredis]
 
+# JWT authentication (Phase security)
+PyJWT
+
+# API key encryption (Phase security)
+cryptography
+
 # FastChat WebUI
 fschat[webui]
 

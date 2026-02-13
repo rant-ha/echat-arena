@@ -38,6 +38,7 @@ async function fetchRecentVotes(): Promise<RecentVoteRow[]> {
   const { data, error } = await supabase
     .from("votes")
     .select("id, created_at, prompt")
+    .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(20);
 

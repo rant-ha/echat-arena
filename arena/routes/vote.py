@@ -3,7 +3,7 @@
 import sys
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Body
+from fastapi import APIRouter, BackgroundTasks, Body, Depends
 from fastapi.responses import JSONResponse
 
 from arena.config import (
@@ -16,12 +16,13 @@ from arena.evaluator import _judge_with_ai
 from arena.db.votes import _insert_vote_supabase, _update_vote_supabase
 from arena.archive import _upload_snapshot_to_drive
 from arena.state import get_state
+from arena.auth import require_auth, get_user_id
 
 router = APIRouter()
 
 
 @router.post(f"{API_PREFIX}/vote")
-async def vote(background_tasks: BackgroundTasks, body: Dict[str, Any] = Body(...)) -> JSONResponse:
+async def vote(background_tasks: BackgroundTasks, body: Dict[str, Any] = Body(...), auth: dict = Depends(require_auth)) -> JSONResponse:
     session_id = (body.get("session_id") or "").strip()
     vote_value = (body.get("vote") or "").strip()
     left_model = (body.get("left_model") or "").strip()
@@ -43,8 +44,8 @@ async def vote(background_tasks: BackgroundTasks, body: Dict[str, Any] = Body(..
         return _error("session not found or expired", status=404)
 
     # optional user
-    user_id = body.get("user_id")
-    user_email = body.get("user_email")
+    user_id = get_user_id(auth)
+    user_email = auth.get("email", body.get("user_email"))
     user_tags = body.get("user_tags")
     user_comment = body.get("user_comment")
     client_info = body.get("client_info")

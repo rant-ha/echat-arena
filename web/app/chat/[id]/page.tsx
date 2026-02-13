@@ -134,6 +134,7 @@ export default function ChatDetailPage() {
           .from("votes")
           .select("id, created_at, session_id, prompt, reply_a, reply_b, user_vote, model_config, conversation_history, turn_count")
           .eq("id", id)
+          .eq("user_id", user.id)
           .single();
 
         if (dbErr) throw dbErr;

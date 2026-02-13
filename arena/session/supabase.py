@@ -28,6 +28,7 @@ class SupabaseSessionStore(SessionStore):
         self._supabase_key = SUPABASE_SERVICE_KEY
         self._request_timeout = float(REQUEST_TIMEOUT)
         self._local_cache = {}  # Simple in-memory cache for hot sessions
+        self._cache_max_size = 500  # LRU cap
         self._cache_ttl = _SESSION_CACHE_TTL_SEC
 
         # Configuration for session store mode
@@ -82,6 +83,17 @@ class SupabaseSessionStore(SessionStore):
 
     def _cache_set(self, session_id: str, session_data: Dict[str, Any]) -> None:
         """Set session in local cache."""
+        # Evict oldest entries if cache exceeds max size
+        if len(self._local_cache) >= self._cache_max_size:
+            # Remove oldest entries (by _cache_time)
+            sorted_keys = sorted(
+                self._local_cache.keys(),
+                key=lambda k: self._local_cache[k].get("_cache_time", 0)
+            )
+            # Remove oldest 10% to avoid frequent evictions
+            remove_count = max(1, len(sorted_keys) // 10)
+            for k in sorted_keys[:remove_count]:
+                del self._local_cache[k]
         cache_key = self._get_cache_key(session_id)
         self._local_cache[cache_key] = {
             "session_data": session_data,

@@ -17,9 +17,7 @@ from arena.utils import _response, _error, log_error
 
 router = APIRouter()
 
-# Admin password from environment
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
-ADMIN_JWT_SECRET = os.environ.get("ADMIN_JWT_SECRET", os.urandom(32).hex())
+from arena.config import ADMIN_PASSWORD, ADMIN_JWT_SECRET
 
 # Token storage - uses database when available, falls back to in-memory
 _ADMIN_TOKENS: Dict[str, datetime] = {}  # Fallback for when Supabase is not configured
@@ -176,24 +174,46 @@ def _verify_admin_password(password: str) -> bool:
     return secrets.compare_digest(password, ADMIN_PASSWORD)
 
 
-# Rate limiting for login attempts
+# Rate limiting for login attempts — exponential backoff
 _LOGIN_ATTEMPTS: Dict[str, List[datetime]] = {}
 MAX_LOGIN_ATTEMPTS = 5
-LOGIN_LOCKOUT_MINUTES = 1
+
+
+def _get_lockout_minutes(failure_count: int) -> int:
+    """Exponential backoff: 1, 2, 4, 8, 16, 32, 60 min cap."""
+    if failure_count < MAX_LOGIN_ATTEMPTS:
+        return 0
+    exponent = failure_count - MAX_LOGIN_ATTEMPTS
+    return min(2 ** exponent, 60)
 
 
 def _check_rate_limit(ip: str) -> bool:
-    """Check if IP is rate limited. Returns True if allowed, False if blocked."""
+    """Check if IP is rate limited with exponential backoff. Returns True if allowed."""
     now = datetime.utcnow()
-    cutoff = now - timedelta(minutes=LOGIN_LOCKOUT_MINUTES)
 
     if ip not in _LOGIN_ATTEMPTS:
         _LOGIN_ATTEMPTS[ip] = []
 
-    # Clean old attempts
+    # Clean attempts older than 60 minutes (max lockout)
+    cutoff = now - timedelta(minutes=60)
     _LOGIN_ATTEMPTS[ip] = [t for t in _LOGIN_ATTEMPTS[ip] if t > cutoff]
 
-    return len(_LOGIN_ATTEMPTS[ip]) < MAX_LOGIN_ATTEMPTS
+    # Periodic cleanup: remove IPs with no recent attempts
+    if len(_LOGIN_ATTEMPTS) > 1000:
+        stale_ips = [k for k, v in _LOGIN_ATTEMPTS.items() if not v]
+        for k in stale_ips:
+            del _LOGIN_ATTEMPTS[k]
+
+    count = len(_LOGIN_ATTEMPTS[ip])
+    if count < MAX_LOGIN_ATTEMPTS:
+        return True
+
+    lockout_min = _get_lockout_minutes(count)
+    last_attempt = _LOGIN_ATTEMPTS[ip][-1] if _LOGIN_ATTEMPTS[ip] else now
+    if now < last_attempt + timedelta(minutes=lockout_min):
+        return False
+
+    return True
 
 
 def _record_login_attempt(ip: str):

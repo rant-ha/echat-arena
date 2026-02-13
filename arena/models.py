@@ -32,7 +32,7 @@ def _get_endpoint(model_id: str) -> ModelEndpoint:
     # If REPLY_MODEL_NAME is configured, allow creating endpoint from REPLY_API_BASE/KEY
     if REPLY_MODEL_NAME:
         # If requested id matches the reply model, construct from REPLY_* vars
-        if model_id == REPLY_MODEL_NAME or model_id in (BASELINE_MODEL_ID, EMPATHY_MODEL_ID) and REPLY_MODEL_NAME == model_id:
+        if model_id == REPLY_MODEL_NAME or model_id in (BASELINE_MODEL_ID, EMPATHY_MODEL_ID):
             api_base = REPLY_API_BASE or DEFAULT_API_BASE or ""
             api_key = REPLY_API_KEY or DEFAULT_API_KEY or ""
             model_name = REPLY_MODEL_NAME

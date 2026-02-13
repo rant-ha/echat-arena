@@ -1,5 +1,7 @@
 export const runtime = "nodejs";
 
+import { createServerClient } from "@supabase/ssr";
+
 function requiredEnv(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Missing env: ${name}`);
@@ -59,8 +61,39 @@ async function proxy(request: Request, ctx: RouteContext) {
   const upstreamUrl = buildUpstreamUrl(request, path);
   const upstreamHeaders = filterRequestHeaders(request.headers);
 
-  // Preserve Authorization if present (backend may rely on it).
-  // (We do not synthesize auth here; just pass-through.)
+  // Forward Supabase JWT to backend for authentication
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (supabaseUrl && supabaseAnonKey) {
+      const cookieHeader = request.headers.get("cookie") || "";
+      const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+        cookies: {
+          get(name: string) {
+            const match = cookieHeader.match(
+              new RegExp(`(?:^|;\\s*)${name}=([^;]*)`)
+            );
+            return match ? decodeURIComponent(match[1]) : undefined;
+          },
+          set() {},
+          remove() {},
+        },
+      });
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        upstreamHeaders.set(
+          "Authorization",
+          `Bearer ${session.access_token}`
+        );
+      }
+    }
+  } catch {
+    // Auth extraction failed — continue without auth header
+    // Backend will return 401 if auth is required
+  }
 
   const controller = new AbortController();
   const onAbort = () => controller.abort();

@@ -74,6 +74,14 @@ export function usePostVoteChat({
 
   // Prevent duplicate fetches
   const fetchingRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Cleanup: abort any active SSE stream on unmount
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   // 1. Restore from localStorage on mount
   useEffect(() => {
@@ -211,6 +219,12 @@ export function usePostVoteChat({
     setCurrentReply("");
     setSendError(null);
 
+    // Abort any previous stream
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let timeoutId: ReturnType<typeof setInterval> | null = null;
+
     try {
       const res = await fetch("/api/proxy/api/arena/chat", {
         method: "POST",
@@ -221,6 +235,7 @@ export function usePostVoteChat({
           user_message: message,
           search_enabled: searchEnabled || false,
         }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -235,11 +250,21 @@ export function usePostVoteChat({
       let buffer = "";
       let reply = "";
 
+      // Stream timeout: abort if no data received for 30 seconds
+      let lastDataTime = Date.now();
+      timeoutId = setInterval(() => {
+        if (Date.now() - lastDataTime > 30_000) {
+          controller.abort();
+          if (timeoutId) clearInterval(timeoutId);
+        }
+      }, 5000);
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
+        lastDataTime = Date.now();
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
 
@@ -322,15 +347,21 @@ export function usePostVoteChat({
         }
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      // Detect session expiry
-      if (msg.includes("Invalid session") || msg.includes("Must vote")) {
-        if (localStorageKey) localStorage.removeItem(localStorageKey);
-        setSendError("session_expired");
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setSendError("stream_timeout");
       } else {
-        setSendError(msg);
+        const msg = err instanceof Error ? err.message : String(err);
+        // Detect session expiry
+        if (msg.includes("Invalid session") || msg.includes("Must vote")) {
+          if (localStorageKey) localStorage.removeItem(localStorageKey);
+          setSendError("session_expired");
+        } else {
+          setSendError(msg);
+        }
       }
     } finally {
+      if (timeoutId) clearInterval(timeoutId);
+      abortRef.current = null;
       setIsChatting(false);
     }
   }, [resolvedSessionId, voteId, isChatting, localStorageKey, searchEnabled]);

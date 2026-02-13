@@ -5,7 +5,7 @@ import time
 from typing import Any, Dict, List
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Body, Query
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, Query
 from fastapi.responses import JSONResponse
 
 from arena.config import (
@@ -19,19 +19,20 @@ from arena.db.helpers import _looks_like_unique_violation
 from arena.db.votes import _insert_vote_supabase, _update_vote_supabase, _fetch_vote_id_by_session_id_supabase
 from arena.evaluator import _judge_with_ai
 from arena.state import get_state
+from arena.auth import require_auth, get_user_id
 
 router = APIRouter()
 
 
 @router.post(f"{API_PREFIX}/draft")
-async def save_draft(body: Dict[str, Any] = Body(...)) -> JSONResponse:
+async def save_draft(body: Dict[str, Any] = Body(...), auth: dict = Depends(require_auth)) -> JSONResponse:
     """Save or update a draft conversation (unvoted)."""
     session_id = (body.get("session_id") or "").strip()
     if not session_id:
         return JSONResponse({"ok": False, "error": "session_id required"}, status_code=400)
 
-    user_id = body.get("user_id")
-    user_email = body.get("user_email")
+    user_id = get_user_id(auth)
+    user_email = auth.get("email", "")
     prompt = body.get("prompt", "")
     reply_a = body.get("reply_a", "")
     reply_b = body.get("reply_b", "")
@@ -106,7 +107,8 @@ async def save_draft(body: Dict[str, Any] = Body(...)) -> JSONResponse:
                             "user_id": user_id,
                             "response_text": resp.text[:500],
                         }, None)
-                return JSONResponse({"ok": False, "error": f"Database error: {resp.text}"}, status_code=500)
+                log_error("draft_save_db_error", {"session_id": session_id, "status": resp.status_code, "detail": resp.text[:200]}, None)
+                return JSONResponse({"ok": False, "error": "Internal server error"}, status_code=500)
 
         # Log successful save
         print(_json_dumps({
@@ -128,14 +130,15 @@ async def save_draft(body: Dict[str, Any] = Body(...)) -> JSONResponse:
             "turn_count": turn_count,
             "error": str(e),
         }, e)
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+        return JSONResponse({"ok": False, "error": "Internal server error"}, status_code=500)
 
 
 @router.get(f"{API_PREFIX}/drafts")
-async def get_drafts(user_id: str = Query(None), user_email: str = Query(None)) -> JSONResponse:
-    """Get list of draft conversations for a user."""
-    if not user_id and not user_email:
-        return JSONResponse({"ok": False, "error": "user_id or user_email required"}, status_code=400)
+async def get_drafts(auth: dict = Depends(require_auth)) -> JSONResponse:
+    """Get list of draft conversations for the authenticated user."""
+    user_id = get_user_id(auth)
+    if not user_id:
+        return JSONResponse({"ok": False, "error": "Authentication required"}, status_code=401)
 
     try:
         url = f"{SUPABASE_URL}/rest/v1/draft_conversations"
@@ -144,26 +147,22 @@ async def get_drafts(user_id: str = Query(None), user_email: str = Query(None)) 
             "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
         }
 
-        params = {"select": "*", "order": "updated_at.desc", "limit": "50"}
-        if user_id:
-            params["user_id"] = f"eq.{user_id}"
-        elif user_email:
-            params["user_email"] = f"eq.{user_email}"
+        params = {"select": "*", "order": "updated_at.desc", "limit": "50", "user_id": f"eq.{user_id}"}
 
         async with httpx.AsyncClient() as client:
             resp = await client.get(url, headers=headers, params=params, timeout=10.0)
             if resp.status_code >= 400:
-                return JSONResponse({"ok": False, "error": f"Database error: {resp.text}"}, status_code=500)
+                return JSONResponse({"ok": False, "error": "Internal server error"}, status_code=500)
 
             data = resp.json()
 
         return JSONResponse({"ok": True, "drafts": data})
     except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+        return JSONResponse({"ok": False, "error": "Internal server error"}, status_code=500)
 
 
 @router.get(f"{API_PREFIX}/draft/{{session_id}}")
-async def get_single_draft(session_id: str) -> JSONResponse:
+async def get_single_draft(session_id: str, auth: dict = Depends(require_auth)) -> JSONResponse:
     """Get a single draft conversation by session_id."""
     if not session_id:
         return JSONResponse({"ok": False, "error": "session_id required"}, status_code=400)
@@ -200,13 +199,18 @@ async def get_single_draft(session_id: str) -> JSONResponse:
                     headers={"Cache-Control": "no-store"},
                 )
 
+            if data:
+                draft_user_id = data[0].get("user_id")
+                if draft_user_id and draft_user_id != get_user_id(auth):
+                    return JSONResponse({"ok": False, "error": "Not found"}, status_code=404, headers={"Cache-Control": "no-store"})
+
         return JSONResponse({"ok": True, "draft": data[0]})
     except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+        return JSONResponse({"ok": False, "error": "Internal server error"}, status_code=500)
 
 
 @router.post(f"{API_PREFIX}/draft/{{session_id}}/vote")
-async def vote_draft(session_id: str, body: Dict[str, Any] = Body(...), background_tasks: BackgroundTasks = BackgroundTasks()) -> JSONResponse:
+async def vote_draft(session_id: str, body: Dict[str, Any] = Body(...), background_tasks: BackgroundTasks = BackgroundTasks(), auth: dict = Depends(require_auth)) -> JSONResponse:
     """Vote on a draft conversation (for resumed/expired sessions).
 
     This endpoint handles voting when the original session has expired from memory.
@@ -219,8 +223,8 @@ async def vote_draft(session_id: str, body: Dict[str, Any] = Body(...), backgrou
     if vote_value not in ALLOWED_VOTES:
         return JSONResponse({"ok": False, "error": "invalid vote"}, status_code=400)
 
-    user_id = body.get("user_id")
-    user_email = body.get("user_email")
+    user_id = get_user_id(auth)
+    user_email = auth.get("email", "")
 
     try:
         # 1. Fetch draft from database
@@ -240,6 +244,10 @@ async def vote_draft(session_id: str, body: Dict[str, Any] = Body(...), backgrou
                 return JSONResponse({"ok": False, "error": "Draft not found"}, status_code=404)
 
         draft = data[0]
+
+        draft_user_id = draft.get("user_id")
+        if draft_user_id and draft_user_id != user_id:
+            return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
 
         # 2. Extract draft data
         model_config = draft.get("model_config") or {}
@@ -387,11 +395,6 @@ async def vote_draft(session_id: str, body: Dict[str, Any] = Body(...), backgrou
             }
             await _SESSION_STORE.put(session_id, restored_session)
             session_restored = True
-            if not session_restored:
-                log_error("draft_session_restore_failed", {
-                    "session_id": session_id,
-                    "vote_id": str(vote_id)
-                }, None)
             print(_json_dumps({
                 "t": _utc_now_iso(),
                 "type": "draft_session_restored",
@@ -417,11 +420,11 @@ async def vote_draft(session_id: str, body: Dict[str, Any] = Body(...), backgrou
 
     except Exception as e:
         print(f"[ERROR] vote_draft failed: {e}", file=sys.stderr)
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+        return JSONResponse({"ok": False, "error": "Internal server error"}, status_code=500)
 
 
 @router.post(f"{API_PREFIX}/draft/{{session_id}}/restore")
-async def restore_draft(session_id: str) -> JSONResponse:
+async def restore_draft(session_id: str, auth: dict = Depends(require_auth)) -> JSONResponse:
     """Restore a draft conversation to SessionStore for pre-vote continuation.
 
     This endpoint restores a draft conversation from the database to the in-memory
@@ -458,6 +461,10 @@ async def restore_draft(session_id: str) -> JSONResponse:
                 )
 
         draft = data[0]
+
+        draft_user_id = draft.get("user_id")
+        if draft_user_id and draft_user_id != get_user_id(auth):
+            return JSONResponse({"ok": False, "error": "Not found"}, status_code=404, headers={"Cache-Control": "no-store"})
 
         # 2. Extract draft data and model config
         model_config = draft.get("model_config") or {}
@@ -496,16 +503,6 @@ async def restore_draft(session_id: str) -> JSONResponse:
         await _SESSION_STORE.put(session_id, restored_session)
         session_restored = True
 
-        if not session_restored:
-            log_error("draft_restore_failed", {
-                "session_id": session_id,
-                "turn_count": turn_count,
-            }, None)
-            return JSONResponse(
-                {"ok": False, "error": "Failed to restore session to memory"},
-                status_code=500,
-            )
-
         # 5. Log successful restoration
         print(_json_dumps({
             "t": _utc_now_iso(),
@@ -527,11 +524,11 @@ async def restore_draft(session_id: str) -> JSONResponse:
             "error": str(e),
         }, e)
         print(f"[ERROR] restore_draft failed for session={session_id}: {e}", file=sys.stderr)
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+        return JSONResponse({"ok": False, "error": "Internal server error"}, status_code=500)
 
 
 @router.delete(f"{API_PREFIX}/draft/{{session_id}}")
-async def delete_draft(session_id: str) -> JSONResponse:
+async def delete_draft(session_id: str, auth: dict = Depends(require_auth)) -> JSONResponse:
     """Delete a draft conversation (e.g., after voting)."""
     if not session_id:
         return JSONResponse({"ok": False, "error": "session_id required"}, status_code=400)
@@ -545,10 +542,23 @@ async def delete_draft(session_id: str) -> JSONResponse:
         params = {"session_id": f"eq.{session_id}"}
 
         async with httpx.AsyncClient() as client:
+            # Verify ownership first
+            resp = await client.get(url, headers=headers, params=params, timeout=10.0)
+            if resp.status_code >= 400:
+                return JSONResponse({"ok": False, "error": "Internal server error"}, status_code=500)
+            data = resp.json()
+            if not data:
+                return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
+            draft_user_id = data[0].get("user_id")
+            if draft_user_id and draft_user_id != get_user_id(auth):
+                return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
+
+            # Now delete
             resp = await client.delete(url, headers=headers, params=params, timeout=10.0)
             if resp.status_code >= 400:
-                return JSONResponse({"ok": False, "error": f"Database error: {resp.text}"}, status_code=500)
+                return JSONResponse({"ok": False, "error": "Internal server error"}, status_code=500)
 
         return JSONResponse({"ok": True})
     except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+        log_error("draft_delete_exception", {"session_id": session_id}, e)
+        return JSONResponse({"ok": False, "error": "Internal server error"}, status_code=500)

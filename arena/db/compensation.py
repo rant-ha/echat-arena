@@ -3,11 +3,17 @@
 import asyncio
 import json
 import os
+import re
 import sys
 import time
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 from arena.utils import _utc_now_iso, _json_dumps
+
+
+def _sanitize_filename(name: str) -> str:
+    """Remove any path traversal characters from filename components."""
+    return re.sub(r'[^a-zA-Z0-9_\-.]', '', str(name))
 
 
 class CompensationQueue:
@@ -65,7 +71,9 @@ class CompensationQueue:
     def _persist_to_file(self, turn_data: Dict[str, Any]) -> None:
         """Persist a single turn to backup directory."""
         try:
-            filename = f"{turn_data.get('vote_id', 'unknown')}_{turn_data.get('turn_index', 0)}_{int(time.time())}.json"
+            vote_id = _sanitize_filename(turn_data.get('vote_id', 'unknown'))
+            turn_index = _sanitize_filename(str(turn_data.get('turn_index', 0)))
+            filename = f"{vote_id}_{turn_index}_{int(time.time())}.json"
             filepath = os.path.join(self._backup_dir, filename)
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(turn_data, f, ensure_ascii=False)
@@ -128,10 +136,11 @@ class CompensationQueue:
     def _cleanup_backup(self, turn_data: Dict[str, Any]) -> None:
         """Remove backup file after successful recovery."""
         try:
-            vote_id = turn_data.get("vote_id", "unknown")
-            turn_index = turn_data.get("turn_index", 0)
+            vote_id = _sanitize_filename(turn_data.get("vote_id", "unknown"))
+            turn_index = _sanitize_filename(str(turn_data.get("turn_index", 0)))
+            prefix = f"{vote_id}_{turn_index}_"
             for f in os.listdir(self._backup_dir):
-                if f.startswith(f"{vote_id}_{turn_index}_"):
+                if f.startswith(prefix):
                     os.remove(os.path.join(self._backup_dir, f))
                     break
         except OSError:

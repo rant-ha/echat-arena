@@ -14,6 +14,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . .
+
+# Non-root user (chown must come after COPY)
+RUN useradd -m -r appuser && chown -R appuser:appuser /app
+USER appuser
+
 ENV PYTHONUNBUFFERED=1
 RUN chmod +x start.sh
 CMD ["./start.sh"]

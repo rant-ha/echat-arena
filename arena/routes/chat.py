@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from arena.config import API_PREFIX
@@ -12,12 +12,14 @@ from arena.db.post_vote import _fetch_post_vote_turns_supabase
 from arena.services.reconstruction import _reconstruct_session_from_votes
 from arena.services.chat import build_post_vote_context, post_vote_event_stream
 from arena.state import get_state
+from arena.auth import require_auth
+from arena.ratelimit import rate_limit
 
 router = APIRouter()
 
 
 @router.post(f"{API_PREFIX}/chat")
-async def post_vote_chat(req: Request, body: Dict[str, Any] = Body(...)) -> StreamingResponse:
+async def post_vote_chat(req: Request, body: Dict[str, Any] = Body(...), auth: dict = Depends(require_auth)) -> StreamingResponse:
     """
     Phase 8.2: 投票后继续对话端点（统一接口契约）
 
@@ -34,6 +36,7 @@ async def post_vote_chat(req: Request, body: Dict[str, Any] = Body(...)) -> Stre
     - finish: {"type": "finish", "side": "winner", "finish": true}
     - error: {"type": "error", "side": "error", "error": "...", "finish": true}
     """
+    await rate_limit(req, "chat", 20, 60)
     session_id = (body.get("session_id") or "").strip()
     # Phase 8.2: Accept both user_message (preferred) and prompt (deprecated)
     user_message = (body.get("user_message") or body.get("prompt") or "").strip()
