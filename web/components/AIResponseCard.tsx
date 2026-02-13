@@ -5,7 +5,6 @@ import { MarkdownRenderer } from "./MarkdownRenderer";
 import { useState } from "react";
 import { cn } from "./ui";
 import { Copy, Check } from "lucide-react";
-import { ThinkingIndicator } from "./ThinkingIndicator";
 
 export type ResponseCardReveal = {
   label?: string;
@@ -20,14 +19,6 @@ export type AiJudgeScores = {
   comment?: string;
 };
 
-// Post-vote turn type
-interface PostVoteTurn {
-  turn_index: number;
-  user_message: string;
-  assistant_message: string;
-  created_at: string;
-}
-
 interface AIResponseCardProps {
   side: "left" | "right";
   anonymousLabel: string;
@@ -39,10 +30,6 @@ interface AIResponseCardProps {
   isLoser?: boolean;
   judgeScores?: AiJudgeScores | null;
   judgeLoading?: boolean;
-  // Post-vote chat (winner only)
-  postVoteTurns?: PostVoteTurn[];
-  postVoteCurrentReply?: string;
-  isPostVoteChatting?: boolean;
 }
 
 export function AIResponseCard({
@@ -56,9 +43,6 @@ export function AIResponseCard({
   isLoser = false,
   judgeScores,
   judgeLoading,
-  postVoteTurns = [],
-  postVoteCurrentReply = "",
-  isPostVoteChatting = false,
 }: AIResponseCardProps) {
   const [copied, setCopied] = useState(false);
 
@@ -72,64 +56,10 @@ export function AIResponseCard({
     }
   };
 
-  // Render post-vote chat continuation
-  const renderPostVoteChat = () => {
-    if (postVoteTurns.length === 0 && !postVoteCurrentReply) return null;
-
-    return (
-      <div className="space-y-4 mt-6 pt-6 border-t border-border-faint">
-        <div className="flex items-center gap-2 mb-4">
-          <span className="text-xs font-medium text-interactive-accent uppercase tracking-wider">
-            Continued Chat
-          </span>
-        </div>
-
-        {postVoteTurns.map((turn) => (
-          <div key={turn.turn_index} className="space-y-4">
-            <div className="flex justify-end">
-              <div className="max-w-[90%] rounded-2xl bg-surface-elevated px-4 py-2.5 text-text-primary">
-                <div className="prose prose-sm prose-invert max-w-none break-words">
-                  <MarkdownRenderer>{turn.user_message}</MarkdownRenderer>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-start w-full">
-              <div className="w-full rounded-xl bg-transparent text-text-secondary">
-                <div className="prose prose-sm prose-invert max-w-none break-words">
-                  <MarkdownRenderer>{turn.assistant_message}</MarkdownRenderer>
-                </div>
-              </div>
-            </div>
-          </div>
-        ))}
-
-        {(postVoteCurrentReply || isPostVoteChatting) && (
-          <div className="flex justify-start w-full">
-            <div className="w-full rounded-xl bg-transparent text-text-primary">
-              <div className="prose prose-sm prose-invert max-w-none break-words">
-                {postVoteCurrentReply ? (
-                  <>
-                    <MarkdownRenderer>{postVoteCurrentReply}</MarkdownRenderer>
-                    {isPostVoteChatting && (
-                      <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-interactive-accent align-middle" />
-                    )}
-                  </>
-                ) : (
-                  <ThinkingIndicator showSkeleton={false} />
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
   // Render AI response content
   const renderContent = () => {
     // Thinking state: streaming but no content yet
-    if (isStreaming && !hasContent && postVoteTurns.length === 0 && !postVoteCurrentReply) {
+    if (isStreaming && !hasContent) {
       return (
         <div className="flex flex-col gap-3 p-4">
           {/* Thinking indicator */}
@@ -158,7 +88,7 @@ export function AIResponseCard({
     }
 
     // Idle state: waiting for user to start
-    if (!hasContent && postVoteTurns.length === 0 && !postVoteCurrentReply) {
+    if (!hasContent) {
       return (
         <div className="flex h-full items-center justify-center">
           <p className="text-sm text-text-muted">等待回复...</p>
@@ -181,9 +111,6 @@ export function AIResponseCard({
             </div>
           </div>
         )}
-
-        {/* Post-vote chat continuation */}
-        {!isLoser && renderPostVoteChat()}
       </div>
     );
   };

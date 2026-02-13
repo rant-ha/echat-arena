@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import TurnstileCaptcha from "@/components/TurnstileCaptcha";
+import GoogleLoginButton from "@/components/GoogleLoginButton";
 import { createSupabaseBrowserClient } from "@/utils/supabase/client";
 import { Button, Card, ErrorText, Input, Label } from "@/components/ui";
 
@@ -151,7 +152,20 @@ export default function RegisterPage() {
             仅允许域名：{allowed.join(", ")}
           </p>
 
-          <form className="mt-6 space-y-4" onSubmit={onSubmit}>
+          <div className="mt-6">
+            <GoogleLoginButton />
+          </div>
+
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-border"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="bg-card px-2 text-muted">或</span>
+            </div>
+          </div>
+
+          <form className="space-y-4" onSubmit={onSubmit}>
             <div>
               <Label htmlFor="email">邮箱</Label>
               <Input

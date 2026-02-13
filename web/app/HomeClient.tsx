@@ -8,13 +8,17 @@ import { PromptInput } from "@/components/PromptInput";
 import { ModelSelector } from "@/components/ModelSelector";
 import { cn } from "@/components/ui";
 
-export function HomeClient(props: { userEmail?: string | null }) {
-  const { userEmail } = props;
+export function HomeClient(props: { userEmail?: string | null; userName?: string | null; userAvatarUrl?: string | null }) {
+  const { userEmail, userName, userAvatarUrl } = props;
 
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedModelKey, setSelectedModelKey] = useState<string | null>(null);
   const MODEL_STORAGE_KEY = "echat-arena-v1-selected-model";
+
+  // Web search toggle state
+  const [searchEnabled, setSearchEnabled] = useState(false);
+  const toggleSearch = useCallback(() => setSearchEnabled(prev => !prev), []);
 
   // Load model selection from localStorage
   useEffect(() => {
@@ -54,9 +58,12 @@ export function HomeClient(props: { userEmail?: string | null }) {
       if (selectedModelKey) {
         params.set("model", selectedModelKey);
       }
+      if (searchEnabled) {
+        params.set("search", "1");
+      }
       router.push(`/battle?${params.toString()}`);
     },
-    [router, selectedModelKey]
+    [router, selectedModelKey, searchEnabled]
   );
 
   return (
@@ -64,7 +71,7 @@ export function HomeClient(props: { userEmail?: string | null }) {
       {/* Desktop sidebar */}
       <div className="hidden md:block md:w-[260px] md:shrink-0">
         <div className="sticky top-0 h-screen">
-          <Sidebar className="h-screen" userEmail={userEmail} />
+          <Sidebar className="h-screen" userEmail={userEmail} userName={userName} userAvatarUrl={userAvatarUrl} />
         </div>
       </div>
 
@@ -78,7 +85,7 @@ export function HomeClient(props: { userEmail?: string | null }) {
             onClick={closeSidebar}
           />
           <div className="absolute left-0 top-0 h-full w-[86vw] max-w-[320px]">
-            <Sidebar className="h-full" onNavigate={closeSidebar} userEmail={userEmail} />
+            <Sidebar className="h-full" onNavigate={closeSidebar} userEmail={userEmail} userName={userName} userAvatarUrl={userAvatarUrl} />
           </div>
         </div>
       )}
@@ -125,6 +132,8 @@ export function HomeClient(props: { userEmail?: string | null }) {
               onSubmit={handleSubmitPrompt}
               placeholder="Ask anything"
               variant="home"
+              searchEnabled={searchEnabled}
+              onSearchToggle={toggleSearch}
             />
           </div>
         </main>

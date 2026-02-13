@@ -35,16 +35,16 @@ function ErrorContent() {
 
         <div className="space-y-3">
           <Link
-            href="/register"
+            href="/login"
             className="block w-full rounded-lg bg-interactive-accent py-2.5 px-4 font-medium text-white hover:bg-interactive-accent/90 transition"
           >
-            重新注册
+            返回登录
           </Link>
           <Link
-            href="/"
+            href="/register"
             className="block w-full rounded-lg border border-border-faint py-2.5 px-4 font-medium text-text-secondary hover:bg-surface-elevated transition"
           >
-            返回首页
+            重新注册
           </Link>
         </div>
       </div>

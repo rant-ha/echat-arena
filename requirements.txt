@@ -1,0 +1,35 @@
+# Core version locks
+pydantic==2.8.2
+huggingface_hub==0.23.0
+
+# Model & UI dependencies
+psutil
+transformers
+accelerate
+sentencepiece
+protobuf
+plotly
+scipy
+
+# Archive (optional, Supabase -> CSV -> Google Drive)
+apscheduler
+google-api-python-client
+google-auth
+
+# Token counting (H-02 fix)
+tiktoken
+
+# Redis session cache (Phase 3, L1 layer)
+redis[hiredis]
+
+# JWT authentication (Phase security)
+PyJWT
+
+# API key encryption (Phase security)
+cryptography
+
+# FastChat WebUI
+fschat[webui]
+
+# Gradio version lock (must be last — fschat may downgrade it)
+gradio==4.44.1

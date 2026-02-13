@@ -9,5 +9,5 @@ export default async function HomePage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  return <HomeClient userEmail={user?.email} />;
+  return <HomeClient userEmail={user?.email} userName={user?.user_metadata?.full_name} userAvatarUrl={user?.user_metadata?.avatar_url} />;
 }

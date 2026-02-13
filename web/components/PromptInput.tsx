@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState, KeyboardEvent, useMemo, useRef, useEffect } from "react";
-import { Send, Plus, Search, Image, FileCode, Film, Globe } from "lucide-react";
+import { Send, Plus, Globe, SlidersHorizontal } from "lucide-react";
 import { cn } from "./ui";
 
 interface PromptInputProps {
@@ -12,6 +12,10 @@ interface PromptInputProps {
   containerClassName?: string;
   /** Variant: "default" for battle page, "home" for ChatGPT-style home page */
   variant?: "default" | "home";
+  /** Whether web search is enabled */
+  searchEnabled?: boolean;
+  /** Callback to toggle web search */
+  onSearchToggle?: () => void;
 }
 
 export function PromptInput({
@@ -20,9 +24,13 @@ export function PromptInput({
   placeholder = "Message Model Arena...",
   containerClassName,
   variant = "default",
+  searchEnabled,
+  onSearchToggle,
 }: PromptInputProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const toolsRef = useRef<HTMLDivElement>(null);
 
   const canSend = useMemo(() => {
     return !disabled && value.trim().length > 0;
@@ -58,6 +66,18 @@ export function PromptInput({
     }
   }, [value]);
 
+  // Close tools popover on click outside
+  useEffect(() => {
+    if (!toolsOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (toolsRef.current && !toolsRef.current.contains(e.target as Node)) {
+        setToolsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [toolsOpen]);
+
   return (
     <div
       className={cn(
@@ -68,16 +88,7 @@ export function PromptInput({
       <div className="relative flex flex-col w-full bg-surface-tertiary rounded-[26px] border border-border-faint shadow-lg focus-within:ring-1 focus-within:ring-border-strong focus-within:border-border-strong transition-all duration-200">
         
         {/* Input Area */}
-        <div className="flex w-full items-end gap-2 p-3 pl-4">
-          {/* Visual-only Attachment Button */}
-          <button
-            type="button"
-            className="mb-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-text-muted hover:bg-surface-elevated hover:text-text-primary transition-colors"
-            title="Attachments (Visual Only)"
-          >
-            <Plus className="h-5 w-5" />
-          </button>
-
+        <div className="flex w-full items-end gap-2 p-3 px-4">
           <textarea
             ref={textareaRef}
             value={value}
@@ -115,21 +126,64 @@ export function PromptInput({
           </button>
         </div>
 
-        {/* Bottom Toolbar (Visual Only for Aesthetics) */}
-        <div className="flex items-center justify-between px-4 pb-2.5">
+        {/* Bottom Toolbar */}
+        <div className="flex items-center px-4 pb-2.5">
           <div className="flex items-center gap-1">
-             <button type="button" className="p-1.5 rounded-lg text-text-muted hover:bg-surface-elevated hover:text-text-primary transition-colors" title="Search">
-                <Globe className="h-4 w-4" />
-             </button>
-             <button type="button" className="p-1.5 rounded-lg text-text-muted hover:bg-surface-elevated hover:text-text-primary transition-colors" title="Image">
-                <Image className="h-4 w-4" />
-             </button>
-             <button type="button" className="p-1.5 rounded-lg text-text-muted hover:bg-surface-elevated hover:text-text-primary transition-colors" title="Code">
-                <FileCode className="h-4 w-4" />
-             </button>
-          </div>
-          <div className="text-[10px] text-text-muted select-none">
-            Enter to send, Shift + Enter for new line
+            {/* Attachment "+" Button (placeholder) */}
+            <button
+              type="button"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-text-muted hover:bg-surface-elevated hover:text-text-primary transition-colors"
+              title="Attachments (coming soon)"
+            >
+              <Plus className="h-5 w-5" />
+            </button>
+
+            {/* Tools Button + Popover */}
+            {onSearchToggle && (
+              <div ref={toolsRef} className="relative">
+                {/* Popover — appears above */}
+                {toolsOpen && (
+                  <div className="absolute bottom-full mb-2 left-0 w-56 rounded-xl border border-border-faint bg-surface-tertiary shadow-lg p-2 z-50">
+                    {/* Search Toggle Row */}
+                    <button
+                      type="button"
+                      onClick={onSearchToggle}
+                      className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 hover:bg-surface-elevated transition-colors"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Globe className="h-4 w-4 text-text-muted" />
+                        <span className="text-sm text-text-primary">Search</span>
+                      </div>
+                      {/* iOS-style Toggle Switch */}
+                      <div className={cn(
+                        "relative h-5 w-9 rounded-full transition-colors",
+                        searchEnabled ? "bg-interactive-accent" : "bg-surface-elevated"
+                      )}>
+                        <div className={cn(
+                          "absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform",
+                          searchEnabled ? "translate-x-4" : "translate-x-0.5"
+                        )} />
+                      </div>
+                    </button>
+                  </div>
+                )}
+
+                {/* Tools Trigger Button */}
+                <button
+                  type="button"
+                  onClick={() => setToolsOpen(prev => !prev)}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm transition-colors",
+                    searchEnabled
+                      ? "text-interactive-accent"
+                      : "text-text-muted hover:bg-surface-elevated hover:text-text-primary"
+                  )}
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                  <span>Tools</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
