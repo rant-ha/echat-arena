@@ -14,11 +14,25 @@ Usage:
 import os
 import sys
 
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import httpx
-from arena.crypto import encrypt_api_key, is_encrypted
+from cryptography.fernet import Fernet, InvalidToken
+
+
+def _get_fernet() -> Fernet:
+    key = os.environ.get("API_KEY_ENCRYPTION_KEY", "")
+    if not key:
+        raise RuntimeError("API_KEY_ENCRYPTION_KEY not set")
+    return Fernet(key.encode())
+
+
+def encrypt_api_key(plaintext: str) -> str:
+    if not plaintext:
+        return ""
+    return _get_fernet().encrypt(plaintext.encode()).decode()
+
+
+def is_encrypted(value: str) -> bool:
+    return value.startswith("gAAAAA") if value else False
 
 
 def main():
