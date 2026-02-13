@@ -22,9 +22,6 @@ tiktoken
 # Redis session cache (Phase 3, L1 layer)
 redis[hiredis]
 
-# Web search (optional, user-toggled DuckDuckGo)
-duckduckgo-search==8.1.1
-
 # FastChat WebUI
 fschat[webui]
 

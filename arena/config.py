@@ -173,7 +173,14 @@ def _list_models() -> List[str]:
     return sorted(set(_MODEL_CONFIG.keys()))
 
 # ---------------------------------------------------------------------------
-# Web Search (optional, user-toggled)
+# Web Search via Serper.dev (optional, user-toggled)
 # ---------------------------------------------------------------------------
+SERPER_API_KEY = os.environ.get("SERPER_API_KEY", "")
+SERPER_GL = os.environ.get("SERPER_GL", "")        # geolocation, e.g. "cn"
+SERPER_HL = os.environ.get("SERPER_HL", "")        # interface language, e.g. "zh-cn"
 WEB_SEARCH_MAX_RESULTS = int(os.environ.get("ARENA_WEB_SEARCH_MAX_RESULTS", "5"))
 WEB_SEARCH_TIMEOUT_SEC = float(os.environ.get("ARENA_WEB_SEARCH_TIMEOUT_SEC", "8"))
+
+# LLM keyword refinement before web search
+SEARCH_QUERY_MODEL = os.environ.get("SEARCH_QUERY_MODEL", "").strip()
+SEARCH_QUERY_REFINE_TIMEOUT_SEC = float(os.environ.get("ARENA_SEARCH_QUERY_REFINE_TIMEOUT_SEC", "5"))

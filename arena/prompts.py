@@ -490,6 +490,20 @@ def _select_template(emotion: str, intensity: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+SEARCH_QUERY_REFINE_PROMPT = (
+    "You are a search query optimizer. Given a user's message (which may be in any language), "
+    "extract 2-5 concise search keywords or a short search phrase that best captures the "
+    "information need. Output ONLY the search query, nothing else. No quotes, no explanation.\n\n"
+    "Examples:\n"
+    "User: \"I've been feeling really anxious about my upcoming job interview, any tips?\"\n"
+    "Output: job interview anxiety coping tips\n\n"
+    "User: \"最近总是失眠怎么办\"\n"
+    "Output: 失眠 解决方法 改善睡眠\n\n"
+    "User: \"How to deal with a toxic coworker who keeps undermining me?\"\n"
+    "Output: toxic coworker undermining strategies"
+)
+
+
 def _build_empathy_system_prompt(emotion: str, intensity: str, support_type: str, template_snippet: str) -> str:
     guide = SUPPORT_TYPE_GUIDE.get(support_type, SUPPORT_TYPE_GUIDE["both"])
     return (
