@@ -76,6 +76,10 @@ export default function DraftDetailPage() {
   const [defaultModelKey, setDefaultModelKey] = useState<string | null>(null);
   const MODEL_STORAGE_KEY = "echat-arena-v1-selected-model";
 
+  // Web search toggle state
+  const [searchEnabled, setSearchEnabled] = useState(false);
+  const toggleSearch = useCallback(() => setSearchEnabled(prev => !prev), []);
+
   const {
     status: battleStatus,
     leftText,
@@ -265,8 +269,8 @@ export default function DraftDetailPage() {
     if (!draft?.session_id || battleStatus === "streaming") return;
     setCurrentPrompt(message);
     const modelToUse = selectedModelKey || defaultModelKey || undefined;
-    continueConversation(draft.session_id, message, modelToUse);
-  }, [draft?.session_id, battleStatus, continueConversation, selectedModelKey, defaultModelKey]);
+    continueConversation(draft.session_id, message, modelToUse, searchEnabled);
+  }, [draft?.session_id, battleStatus, continueConversation, selectedModelKey, defaultModelKey, searchEnabled]);
 
   // Save draft update to database when new battle turn is complete
   const saveDraftUpdate = useCallback(async (newTurn: ConversationHistoryTurn, allTurns: ConversationHistoryTurn[]) => {
@@ -586,6 +590,8 @@ export default function DraftDetailPage() {
                   onSubmit={handlePreVoteContinue}
                   disabled={battleStatus === "streaming"}
                   placeholder="继续对话，或选择下方投票..."
+                  searchEnabled={searchEnabled}
+                  onSearchToggle={toggleSearch}
                 />
 
                 <div className="border-t border-border-faint pt-4">

@@ -102,6 +102,10 @@ export default function BattlePage() {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const urlModel = urlParams.get("model");
+    const urlSearch = urlParams.get("search");
+    if (urlSearch === "1") {
+      setSearchEnabled(true);
+    }
 
     if (urlModel) {
       setSelectedModelKey(urlModel);

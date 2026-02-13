@@ -16,6 +16,10 @@ export function HomeClient(props: { userEmail?: string | null; userName?: string
   const [selectedModelKey, setSelectedModelKey] = useState<string | null>(null);
   const MODEL_STORAGE_KEY = "echat-arena-v1-selected-model";
 
+  // Web search toggle state
+  const [searchEnabled, setSearchEnabled] = useState(false);
+  const toggleSearch = useCallback(() => setSearchEnabled(prev => !prev), []);
+
   // Load model selection from localStorage
   useEffect(() => {
     try {
@@ -54,9 +58,12 @@ export function HomeClient(props: { userEmail?: string | null; userName?: string
       if (selectedModelKey) {
         params.set("model", selectedModelKey);
       }
+      if (searchEnabled) {
+        params.set("search", "1");
+      }
       router.push(`/battle?${params.toString()}`);
     },
-    [router, selectedModelKey]
+    [router, selectedModelKey, searchEnabled]
   );
 
   return (
@@ -125,6 +132,8 @@ export function HomeClient(props: { userEmail?: string | null; userName?: string
               onSubmit={handleSubmitPrompt}
               placeholder="Ask anything"
               variant="home"
+              searchEnabled={searchEnabled}
+              onSearchToggle={toggleSearch}
             />
           </div>
         </main>
