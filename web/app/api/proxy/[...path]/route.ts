@@ -1,6 +1,6 @@
 export const runtime = "nodejs";
 
-import { createServerClient } from "@supabase/ssr";
+import { createSupabaseServerClient } from "@/utils/supabase/server";
 
 function requiredEnv(name: string): string {
   const v = process.env[name];
@@ -63,32 +63,15 @@ async function proxy(request: Request, ctx: RouteContext) {
 
   // Forward Supabase JWT to backend for authentication
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (supabaseUrl && supabaseAnonKey) {
-      const cookieHeader = request.headers.get("cookie") || "";
-      const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-        cookies: {
-          get(name: string) {
-            const match = cookieHeader.match(
-              new RegExp(`(?:^|;\\s*)${name}=([^;]*)`)
-            );
-            return match ? decodeURIComponent(match[1]) : undefined;
-          },
-          set() {},
-          remove() {},
-        },
-      });
-
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (session?.access_token) {
-        upstreamHeaders.set(
-          "Authorization",
-          `Bearer ${session.access_token}`
-        );
-      }
+    const supabase = createSupabaseServerClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      upstreamHeaders.set(
+        "Authorization",
+        `Bearer ${session.access_token}`
+      );
     }
   } catch {
     // Auth extraction failed — continue without auth header

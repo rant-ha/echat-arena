@@ -16,14 +16,19 @@ export function createSupabaseServerClient() {
 
   return createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
-      get(name: string) {
-        return cookieStore.get(name)?.value;
+      getAll() {
+        return cookieStore.getAll();
       },
-      set(name: string, value: string, options: any) {
-        cookieStore.set({ name, value, ...options });
-      },
-      remove(name: string, options: any) {
-        cookieStore.set({ name, value: "", ...options, maxAge: 0 });
+      setAll(cookiesToSet: { name: string; value: string; options: Record<string, unknown> }[]) {
+        try {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            cookieStore.set(name, value, options as any)
+          );
+        } catch {
+          // setAll can be called from a Server Component where cookies
+          // are read-only. The middleware will refresh the session so
+          // this is safe to ignore.
+        }
       },
     },
   });
