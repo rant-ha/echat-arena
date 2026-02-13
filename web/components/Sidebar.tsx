@@ -6,11 +6,12 @@ import {
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
-  ChevronRight
+  Clock,
+  LogOut,
 } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/utils/supabase/client";
 import { cn } from "@/components/ui";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 type RecentVoteRow = {
   id: string;
@@ -68,6 +69,28 @@ export function Sidebar(props: SidebarProps) {
   );
 
   const rows = data || [];
+
+  // User menu state
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu on click outside
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [menuOpen]);
+
+  const handleLogout = useCallback(async () => {
+    const supabase = createSupabaseBrowserClient();
+    await supabase.auth.signOut();
+    window.location.href = "/login";
+  }, []);
 
   // Get user initials for avatar
   const userInitials = userEmail
@@ -159,12 +182,11 @@ export function Sidebar(props: SidebarProps) {
       </div>
 
       {/* User Profile Footer */}
-      <div className="border-t border-border-faint p-2">
-        <a
-          href="/history"
-          onClick={onNavigate}
+      <div className="relative border-t border-border-faint p-2" ref={menuRef}>
+        <button
+          onClick={() => setMenuOpen(!menuOpen)}
           className={cn(
-            "flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-surface-elevated",
+            "flex w-full items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-surface-elevated",
             collapsed ? "justify-center" : ""
           )}
           title={userEmail || "Guest"}
@@ -182,7 +204,7 @@ export function Sidebar(props: SidebarProps) {
             </div>
           )}
           {!collapsed && (
-            <div className="flex min-w-0 flex-col">
+            <div className="flex min-w-0 flex-col text-left">
               <span className="truncate text-sm font-medium text-text-primary">
                 {userName || (userEmail ? userEmail.split('@')[0] : "Guest")}
               </span>
@@ -191,7 +213,33 @@ export function Sidebar(props: SidebarProps) {
               </span>
             </div>
           )}
-        </a>
+        </button>
+
+        {menuOpen && (
+          <div
+            className={cn(
+              "absolute bottom-full mb-2 rounded-xl border border-border-faint bg-surface-secondary shadow-lg z-50",
+              collapsed ? "left-0 w-48" : "left-2 right-2"
+            )}
+          >
+            <a
+              href="/history"
+              onClick={() => { setMenuOpen(false); onNavigate?.(); }}
+              className="flex items-center gap-3 px-4 py-3 text-sm text-text-primary hover:bg-surface-elevated transition-colors rounded-t-xl"
+            >
+              <Clock className="h-4 w-4 text-text-secondary" />
+              历史对话
+            </a>
+            <div className="border-t border-border-faint" />
+            <button
+              onClick={handleLogout}
+              className="flex w-full items-center gap-3 px-4 py-3 text-sm text-negative hover:bg-surface-elevated transition-colors rounded-b-xl"
+            >
+              <LogOut className="h-4 w-4" />
+              退出登录
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );
