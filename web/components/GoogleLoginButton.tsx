@@ -56,7 +56,7 @@ export default function GoogleLoginButton({ redirectTo = "/battle" }: GoogleLogi
         // 客户端 Gmail-only 快速检查（middleware 有服务端双重检查）
         const email = data.user?.email || "";
         const domain = email.split("@")[1]?.toLowerCase();
-        if (domain !== "gmail.com") {
+        if (domain && domain !== "gmail.com") {
           await supabase.auth.signOut();
           setError("仅允许 Gmail 邮箱通过 Google 登录");
           return;

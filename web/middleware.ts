@@ -81,7 +81,11 @@ export async function middleware(req: NextRequest) {
   if (user && isPublic) {
     const url = req.nextUrl.clone();
     url.pathname = "/battle";
-    return NextResponse.redirect(url);
+    const redirectRes = NextResponse.redirect(url);
+    for (const cookie of res.cookies.getAll()) {
+      redirectRes.cookies.set(cookie);
+    }
+    return redirectRes;
   }
 
   // 未登录：仅允许 login/register
@@ -89,7 +93,11 @@ export async function middleware(req: NextRequest) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
+    const redirectRes = NextResponse.redirect(url);
+    for (const cookie of res.cookies.getAll()) {
+      redirectRes.cookies.set(cookie);
+    }
+    return redirectRes;
   }
 
   return res;
