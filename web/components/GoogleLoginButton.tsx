@@ -1,70 +1,94 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { GoogleLogin, CredentialResponse } from "@react-oauth/google";
 import { createSupabaseBrowserClient } from "@/utils/supabase/client";
 import { ErrorText } from "@/components/ui";
 
-export default function GoogleLoginButton() {
-  const [loading, setLoading] = useState(false);
+interface GoogleLoginButtonProps {
+  redirectTo?: string;
+}
+
+export default function GoogleLoginButton({ redirectTo = "/battle" }: GoogleLoginButtonProps) {
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [hashedNonce, setHashedNonce] = useState("");
+  const nonceRef = useRef<string>("");
 
-  async function handleClick() {
-    setError(null);
-    setLoading(true);
+  // 生成 nonce + SHA-256 哈希
+  useEffect(() => {
+    const rawNonce = btoa(
+      String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))
+    );
+    nonceRef.current = rawNonce;
 
-    try {
-      const supabase = createSupabaseBrowserClient();
-      const { error: oauthError } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: window.location.origin + "/auth/callback",
-        },
+    crypto.subtle
+      .digest("SHA-256", new TextEncoder().encode(rawNonce))
+      .then((buf) => {
+        const hash = Array.from(new Uint8Array(buf))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+        setHashedNonce(hash);
       });
+  }, []);
 
-      if (oauthError) {
-        setError(oauthError.message);
-        setLoading(false);
+  // Google 登录成功回调
+  const handleSuccess = useCallback(
+    async (response: CredentialResponse) => {
+      setError(null);
+      if (!response.credential) {
+        setError("Google 登录未返回凭证");
+        return;
       }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Google 登录失败";
-      setError(message);
-      setLoading(false);
-    }
-  }
+
+      try {
+        const supabase = createSupabaseBrowserClient();
+
+        const { data, error: authError } = await supabase.auth.signInWithIdToken({
+          provider: "google",
+          token: response.credential,
+          nonce: nonceRef.current,
+        });
+
+        if (authError) throw authError;
+
+        // 客户端 Gmail-only 快速检查（middleware 有服务端双重检查）
+        const email = data.user?.email || "";
+        const domain = email.split("@")[1]?.toLowerCase();
+        if (domain !== "gmail.com") {
+          await supabase.auth.signOut();
+          setError("仅允许 Gmail 邮箱通过 Google 登录");
+          return;
+        }
+
+        const safePath = redirectTo.startsWith("/") && !redirectTo.startsWith("//")
+          ? redirectTo : "/battle";
+        router.replace(safePath);
+        router.refresh();
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Google 登录失败";
+        setError(message);
+      }
+    },
+    [redirectTo, router]
+  );
+
+  if (!hashedNonce) return null;
 
   return (
     <div>
-      <button
-        type="button"
-        onClick={handleClick}
-        disabled={loading}
-        className="w-full inline-flex items-center justify-center gap-3 rounded-md border border-border
-                   bg-transparent px-4 py-2 text-sm font-medium text-foreground transition
-                   hover:bg-white/5 hover:border-primary/50 disabled:opacity-50"
-      >
-        {!loading && (
-          <svg width="20" height="20" viewBox="0 0 48 48">
-            <path
-              fill="#4285F4"
-              d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
-            />
-            <path
-              fill="#34A853"
-              d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
-            />
-            <path
-              fill="#FBBC05"
-              d="M10.53 28.59a14.5 14.5 0 0 1 0-9.18l-7.98-6.19a24.01 24.01 0 0 0 0 21.56l7.98-6.19z"
-            />
-            <path
-              fill="#EA4335"
-              d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
-            />
-          </svg>
-        )}
-        {loading ? "跳转中..." : "使用 Google 登录"}
-      </button>
-      {error ? <ErrorText>{error}</ErrorText> : null}
+      <GoogleLogin
+        nonce={hashedNonce}
+        onSuccess={handleSuccess}
+        onError={() => setError("Google 登录失败")}
+        use_fedcm_for_prompt
+        width={400}
+        text="signin_with"
+        shape="rectangular"
+        theme="outline"
+      />
+      {error && <ErrorText>{error}</ErrorText>}
     </div>
   );
 }

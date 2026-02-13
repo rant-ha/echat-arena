@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import TurnstileCaptcha from "@/components/TurnstileCaptcha";
 import GoogleLoginButton from "@/components/GoogleLoginButton";
+import { GoogleOAuthProvider } from "@react-oauth/google";
 import { createSupabaseBrowserClient } from "@/utils/supabase/client";
 import { Button, Card, ErrorText, Input, Label } from "@/components/ui";
 
@@ -153,7 +154,11 @@ export default function RegisterPage() {
           </p>
 
           <div className="mt-6">
-            <GoogleLoginButton />
+            {process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ? (
+              <GoogleOAuthProvider clientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID}>
+                <GoogleLoginButton />
+              </GoogleOAuthProvider>
+            ) : null}
           </div>
 
           <div className="relative my-6">

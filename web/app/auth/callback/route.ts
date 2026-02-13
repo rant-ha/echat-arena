@@ -26,7 +26,8 @@ export async function GET(request: NextRequest) {
     const email = user?.email || "";
     const domain = email.split("@")[1]?.toLowerCase();
 
-    if (domain !== "gmail.com") {
+    const providers: string[] = user?.app_metadata?.providers || [];
+    if (providers.includes("google") && domain !== "gmail.com") {
       await supabase.auth.signOut();
       return NextResponse.redirect(
         new URL("/auth/error?message=" + encodeURIComponent("仅允许 Gmail 邮箱通过 Google 登录"), origin)

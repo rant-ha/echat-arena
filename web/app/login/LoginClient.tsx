@@ -5,18 +5,21 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import TurnstileCaptcha from "@/components/TurnstileCaptcha";
 import GoogleLoginButton from "@/components/GoogleLoginButton";
+import { GoogleOAuthProvider } from "@react-oauth/google";
 import { createSupabaseBrowserClient } from "@/utils/supabase/client";
 import { Button, Card, ErrorText, Input, Label } from "@/components/ui";
 
-export default function LoginClient(props: { nextPath: string }) {
-  const { nextPath } = props;
+export default function LoginClient(props: { nextPath: string; errorCode: string }) {
+  const { nextPath, errorCode } = props;
   const router = useRouter();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [captchaToken, setCaptchaToken] = useState<string>("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    errorCode === "gmail_only" ? "仅允许 Gmail 邮箱通过 Google 登录" : null
+  );
 
   const captchaEnabled = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
 
@@ -62,7 +65,11 @@ export default function LoginClient(props: { nextPath: string }) {
           <p className="mt-1 text-sm text-muted">使用邮箱 + 密码登录</p>
 
           <div className="mt-6">
-            <GoogleLoginButton />
+            {process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ? (
+              <GoogleOAuthProvider clientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID}>
+                <GoogleLoginButton redirectTo={nextPath} />
+              </GoogleOAuthProvider>
+            ) : null}
           </div>
 
           <div className="relative my-6">

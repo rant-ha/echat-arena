@@ -55,6 +55,26 @@ export async function middleware(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Google 登录用户的 Gmail 域名检查（不影响邮箱密码用户）
+  if (user) {
+    const providers: string[] = user.app_metadata?.providers || [];
+    if (providers.includes("google")) {
+      const email = user.email || "";
+      const domain = email.split("@")[1]?.toLowerCase();
+      if (domain && domain !== "gmail.com") {
+        await supabase.auth.signOut();
+        const url = req.nextUrl.clone();
+        url.pathname = "/login";
+        url.searchParams.set("error", "gmail_only");
+        const redirectRes = NextResponse.redirect(url);
+        for (const cookie of res.cookies.getAll()) {
+          redirectRes.cookies.set(cookie);
+        }
+        return redirectRes;
+      }
+    }
+  }
+
   const isPublic = PUBLIC_PATHS.has(pathname);
 
   // 已登录：不允许访问 login/register，重定向到对战页

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@marsidev/react-turnstile": "^1.4.1",
+    "@react-oauth/google": "^0.13.4",
     "@supabase/ssr": "^0.4.0",
     "@supabase/supabase-js": "^2.45.4",
     "@types/react-window": "^1.8.8",
