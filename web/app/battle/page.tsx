@@ -489,7 +489,7 @@ export default function BattlePage() {
       {/* Desktop sidebar */}
       <div
         className={cn(
-          "hidden md:block shrink-0 transition-[width] duration-300 ease-in-out",
+          "hidden md:block shrink-0 transition-[width] duration-300 ease-in-out z-[51]",
           sidebarCollapsed ? "w-[60px]" : "w-[260px]"
         )}
       >
