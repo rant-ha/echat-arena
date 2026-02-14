@@ -87,7 +87,7 @@ async def list_models(
             if "/" in content_range:
                 try:
                     total = int(content_range.split("/")[1])
-                except:
+                except (ValueError, IndexError):
                     total = len(models)
 
             # Mask API keys - only show last 4 chars

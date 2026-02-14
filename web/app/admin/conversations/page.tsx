@@ -250,11 +250,11 @@ export default function ConversationsPage() {
       const rows = allConversations.map((c) =>
         [
           formatDate(c.created_at, locale),
-          c.user_email,
+          (c.user_email || ""),
           (c.prompt || "").replace(/\n/g, " "),
           voteLabel(c.user_vote, tRef.current),
-          c.base_model_name || "-",
-          String(c.turn_count),
+          (c.base_model_name || "-"),
+          String(c.turn_count ?? 0),
           winnerLabel(c.winner_type),
         ]
           .map(escapeCSV)

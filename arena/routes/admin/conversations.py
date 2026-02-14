@@ -81,9 +81,9 @@ async def list_conversations(
                 if date_from:
                     # Use PostgREST 'and' for range
                     params.pop("created_at", None)
-                    params["and"] = f"(created_at.gte.{date_from},created_at.lte.{date_to})"
+                    params["and"] = f"(created_at.gte.{date_from},created_at.lte.{date_to}T23:59:59)"
                 else:
-                    params["created_at"] = f"lte.{date_to}"
+                    params["created_at"] = f"lte.{date_to}T23:59:59"
 
             if model and re.match(r"^[a-zA-Z0-9._-]+$", model):
                 params["base_model_name"] = f"eq.{model}"

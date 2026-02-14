@@ -324,7 +324,7 @@ export default function DraftDetailPage() {
       }
 
       // Success
-      console.log("[saveDraftUpdate] Draft saved successfully for session:", draft.session_id);
+      console.debug("[saveDraftUpdate] Draft saved successfully for session:", draft.session_id);
       setSaveStatus("success");
       setTimeout(() => setSaveStatus("idle"), 3000);
     } catch (err) {

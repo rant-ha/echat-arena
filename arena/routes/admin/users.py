@@ -147,6 +147,9 @@ async def disable_user(
     """
     await _require_admin_token(admin_token)
 
+    if not UUID_RE.match(user_id):
+        return _error("Invalid user ID format", status=400)
+
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return _error("Supabase not configured", status=500)
 
@@ -191,6 +194,9 @@ async def enable_user(
     - user_id: UUID of the user
     """
     await _require_admin_token(admin_token)
+
+    if not UUID_RE.match(user_id):
+        return _error("Invalid user ID format", status=400)
 
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return _error("Supabase not configured", status=500)
@@ -241,6 +247,9 @@ async def get_user_votes(
     - page_size: Items per page (default 20)
     """
     await _require_admin_token(admin_token)
+
+    if not UUID_RE.match(user_id):
+        return _error("Invalid user ID format", status=400)
 
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return _error("Supabase not configured", status=500)
@@ -301,6 +310,9 @@ async def get_user_detail(
     Get detailed user info including stats, conversations, and activity timeline.
     """
     await _require_admin_token(admin_token)
+
+    if not UUID_RE.match(user_id):
+        return _error("Invalid user ID format", status=400)
 
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return _error("Supabase not configured", status=500)
