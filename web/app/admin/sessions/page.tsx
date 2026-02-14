@@ -247,8 +247,9 @@ export default function SessionsPage() {
               <Card
                 key={session.session_id}
                 className={cn(
-                  "flex items-center gap-4 p-4",
-                  (deleted || expired) && "opacity-60"
+                  "flex items-center gap-4 p-4 relative",
+                  (deleted || expired) && "opacity-60",
+                  actionMenuId === session.session_id && "z-30"
                 )}
               >
                 {/* Icon */}

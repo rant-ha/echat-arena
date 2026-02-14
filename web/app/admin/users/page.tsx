@@ -532,7 +532,11 @@ export default function UsersPage() {
           {users.map((user) => (
             <Card
               key={user.id}
-              className={cn("flex items-center gap-4 p-4", user.is_disabled && "opacity-60")}
+              className={cn(
+                "flex items-center gap-4 p-4 relative",
+                user.is_disabled && "opacity-60",
+                actionMenuId === user.id && "z-30"
+              )}
             >
               <div
                 className={cn(

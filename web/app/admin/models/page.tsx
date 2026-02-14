@@ -277,9 +277,9 @@ export default function ModelsPage() {
             <Card
               key={model.id}
               className={cn(
-                "flex items-center gap-4 p-4",
+                "flex items-center gap-4 p-4 relative",
                 !model.is_enabled && "opacity-60",
-                actionMenuId === model.id && "relative z-50"
+                actionMenuId === model.id && "z-30"
               )}
             >
               {/* Reorder buttons */}
