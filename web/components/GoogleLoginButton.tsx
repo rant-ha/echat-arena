@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { GoogleLogin } from "@react-oauth/google";
 import { ErrorText } from "@/components/ui";
 
@@ -13,6 +13,25 @@ export default function GoogleLoginButton({ redirectTo = "/battle" }: GoogleLogi
   const [ready, setReady] = useState(false);
   const [hashedNonce, setHashedNonce] = useState("");
   const [loginUri, setLoginUri] = useState("");
+  const [buttonWidth, setButtonWidth] = useState<number>(400);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // 监听容器宽度变化
+  useEffect(() => {
+    const updateWidth = () => {
+      if (containerRef.current) {
+        const width = containerRef.current.offsetWidth;
+        // Google 按钮最小宽度约 200px，最大约 400px
+        setButtonWidth(Math.max(200, Math.min(width, 600)));
+      }
+    };
+
+    updateWidth();
+
+    // 监听窗口大小变化
+    window.addEventListener("resize", updateWidth);
+    return () => window.removeEventListener("resize", updateWidth);
+  }, []);
 
   useEffect(() => {
     // 生成 nonce
@@ -47,7 +66,7 @@ export default function GoogleLoginButton({ redirectTo = "/battle" }: GoogleLogi
   if (!ready || !hashedNonce || !loginUri) return null;
 
   return (
-    <div className="w-full overflow-hidden">
+    <div ref={containerRef} className="w-full">
       <GoogleLogin
         nonce={hashedNonce}
         ux_mode="redirect"
@@ -55,9 +74,11 @@ export default function GoogleLoginButton({ redirectTo = "/battle" }: GoogleLogi
         onSuccess={() => {}}
         onError={() => setError("Google 登录失败")}
         use_fedcm_for_prompt
+        width={buttonWidth}
         text="signin_with"
         shape="rectangular"
         theme="filled_black"
+        size="large"
       />
       {error && <ErrorText>{error}</ErrorText>}
     </div>
