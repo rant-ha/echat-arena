@@ -36,6 +36,7 @@ from arena.routes.admin import models as admin_models
 from arena.routes.admin import users as admin_users
 from arena.routes.admin import stats as admin_stats
 from arena.routes.admin import archive as admin_archive
+from arena.routes.admin import conversations as admin_conversations
 
 
 def create_app() -> FastAPI:
@@ -74,6 +75,7 @@ def create_app() -> FastAPI:
     application.include_router(admin_users.router)
     application.include_router(admin_stats.router)
     application.include_router(admin_archive.router)
+    application.include_router(admin_conversations.router)
 
     @application.on_event("startup")
     async def _startup() -> None:

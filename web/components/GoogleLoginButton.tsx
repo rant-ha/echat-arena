@@ -47,7 +47,7 @@ export default function GoogleLoginButton({ redirectTo = "/battle" }: GoogleLogi
   if (!ready || !hashedNonce || !loginUri) return null;
 
   return (
-    <div>
+    <div className="w-full overflow-hidden">
       <GoogleLogin
         nonce={hashedNonce}
         ux_mode="redirect"
@@ -55,7 +55,6 @@ export default function GoogleLoginButton({ redirectTo = "/battle" }: GoogleLogi
         onSuccess={() => {}}
         onError={() => setError("Google 登录失败")}
         use_fedcm_for_prompt
-        width={400}
         text="signin_with"
         shape="rectangular"
         theme="filled_black"

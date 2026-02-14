@@ -1,5 +1,8 @@
+"use client";
+
 import { cn } from "@/components/ui";
 import { LucideIcon } from "lucide-react";
+import { useI18n } from "@/utils/i18n-context";
 
 interface StatsCardProps {
   title: string;
@@ -21,6 +24,8 @@ export function StatsCard({
   trend,
   className,
 }: StatsCardProps) {
+  const { t } = useI18n();
+
   return (
     <div
       className={cn(
@@ -46,9 +51,9 @@ export function StatsCard({
               trend.isPositive ? "text-positive" : "text-negative"
             )}
           >
-            <span>{trend.isPositive ? "↑" : "↓"}</span>
+            <span>{trend.isPositive ? "\u2191" : "\u2193"}</span>
             <span>{Math.abs(trend.value)}%</span>
-            <span className="text-text-muted">vs 上期</span>
+            <span className="text-text-muted">{t("statscard.vs_prev")}</span>
           </div>
         )}
       </div>

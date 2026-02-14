@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Vote,
   Users,
@@ -11,8 +11,10 @@ import {
 } from "lucide-react";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
 import { StatsCard } from "@/components/admin/StatsCard";
+import { Skeleton, SkeletonCard } from "@/components/Skeleton";
 import { Card, Button } from "@/components/ui";
 import { cn } from "@/components/ui";
+import { useI18n } from "@/utils/i18n-context";
 
 interface Statistics {
   overview: {
@@ -35,11 +37,25 @@ interface Statistics {
   period: string;
 }
 
+interface DetailedStats {
+  strategy_overview: {
+    total_votes: number;
+    strategy_wins: number;
+    baseline_wins: number;
+    undecided: number;
+    strategy_win_rate: number;
+  };
+}
+
 type Period = "1d" | "7d" | "30d" | "all";
 
 export default function AdminDashboardPage() {
   const { getToken } = useAdminAuth();
+  const { t } = useI18n();
+  const tRef = useRef(t);
+  tRef.current = t;
   const [stats, setStats] = useState<Statistics | null>(null);
+  const [detailedStats, setDetailedStats] = useState<DetailedStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [period, setPeriod] = useState<Period>("7d");
@@ -50,30 +66,35 @@ export default function AdminDashboardPage() {
 
     const token = getToken();
     if (!token) {
-      setError("未登录");
+      setError(tRef.current("common.not_logged_in"));
       setLoading(false);
       return;
     }
 
     try {
-      const res = await fetch(
-        `/api/proxy/api/arena/admin/statistics?period=${period}`,
-        {
-          headers: {
-            "admin-token": token,
-          },
-        }
-      );
+      const [res, detailedRes] = await Promise.all([
+        fetch(`/api/proxy/api/arena/admin/statistics?period=${period}`, {
+          headers: { "admin-token": token },
+        }),
+        fetch(`/api/proxy/api/arena/admin/statistics/detailed?period=${period}`, {
+          headers: { "admin-token": token },
+        }),
+      ]);
 
       const data = await res.json();
 
       if (data.ok) {
         setStats(data.data);
       } else {
-        setError(data.error || "获取统计数据失败");
+        setError(data.error || tRef.current("admin.dashboard.fetch_error"));
+      }
+
+      const detailedData = await detailedRes.json();
+      if (detailedData.ok) {
+        setDetailedStats(detailedData.data);
       }
     } catch {
-      setError("网络错误");
+      setError(tRef.current("common.error"));
     } finally {
       setLoading(false);
     }
@@ -94,14 +115,21 @@ export default function AdminDashboardPage() {
       stats.vote_distribution.both_bad
     : 0;
 
+  const periodLabels: Record<Period, string> = {
+    "1d": t("admin.dashboard.period_1d"),
+    "7d": t("admin.dashboard.period_7d"),
+    "30d": t("admin.dashboard.period_30d"),
+    "all": t("admin.dashboard.period_all"),
+  };
+
   return (
     <div className="p-6">
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-text-primary">仪表板</h1>
+          <h1 className="text-2xl font-semibold text-text-primary">{t("admin.dashboard.title")}</h1>
           <p className="mt-1 text-sm text-text-muted">
-            系统运行状态概览
+            {t("admin.dashboard.subtitle")}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -118,13 +146,7 @@ export default function AdminDashboardPage() {
                     : "text-text-muted hover:text-text-primary"
                 )}
               >
-                {p === "1d"
-                  ? "24小时"
-                  : p === "7d"
-                  ? "7天"
-                  : p === "30d"
-                  ? "30天"
-                  : "全部"}
+                {periodLabels[p]}
               </button>
             ))}
           </div>
@@ -136,8 +158,27 @@ export default function AdminDashboardPage() {
 
       {/* Content */}
       {loading && !stats ? (
-        <div className="flex h-64 items-center justify-center">
-          <div className="text-text-muted">加载中...</div>
+        <div className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+          </div>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div className="rounded-xl border border-border-faint bg-surface-secondary/70 p-6">
+              <Skeleton className="h-4 w-24 mb-4" />
+              <div className="space-y-3">
+                <Skeleton className="h-6 w-full" />
+                <Skeleton className="h-6 w-full" />
+                <Skeleton className="h-6 w-3/4" />
+              </div>
+            </div>
+            <div className="rounded-xl border border-border-faint bg-surface-secondary/70 p-6">
+              <Skeleton className="h-4 w-24 mb-4" />
+              <Skeleton className="h-48 w-full" />
+            </div>
+          </div>
         </div>
       ) : error ? (
         <div className="flex h-64 items-center justify-center">
@@ -148,39 +189,47 @@ export default function AdminDashboardPage() {
           {/* Overview Stats */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatsCard
-              title="总投票数"
+              title={t("admin.dashboard.total_votes")}
               value={stats.overview.total_votes.toLocaleString()}
               icon={Vote}
             />
             <StatsCard
-              title="注册用户"
+              title={t("admin.dashboard.registered_users")}
               value={stats.overview.total_users.toLocaleString()}
               icon={Users}
-              description={`${stats.overview.active_users} 活跃`}
+              description={`${stats.overview.active_users} ${t("admin.dashboard.active")}`}
             />
             <StatsCard
-              title="会话数"
+              title={t("admin.dashboard.sessions")}
               value={stats.overview.total_sessions.toLocaleString()}
               icon={MessageSquare}
             />
             <StatsCard
-              title="活跃模型"
+              title={t("admin.dashboard.active_models")}
               value={stats.overview.active_models}
               icon={Bot}
             />
+            {detailedStats && (
+              <StatsCard
+                title={t("admin.dashboard.strategy_win_rate")}
+                value={`${detailedStats.strategy_overview.strategy_win_rate}%`}
+                icon={TrendingUp}
+                description={`${detailedStats.strategy_overview.strategy_wins} ${t("admin.dashboard.strategy")} / ${detailedStats.strategy_overview.baseline_wins} ${t("admin.dashboard.baseline")}`}
+              />
+            )}
           </div>
 
           {/* Charts Row */}
           <div className="grid gap-6 lg:grid-cols-2">
             {/* Vote Distribution */}
             <Card>
-              <h2 className="mb-4 font-medium text-text-primary">投票分布</h2>
+              <h2 className="mb-4 font-medium text-text-primary">{t("admin.dashboard.vote_distribution")}</h2>
               <div className="space-y-3">
                 {[
-                  { key: "model_a", label: "选了 A", color: "bg-blue-500" },
-                  { key: "model_b", label: "选了 B", color: "bg-green-500" },
-                  { key: "tie", label: "平局", color: "bg-yellow-500" },
-                  { key: "both_bad", label: "都不行", color: "bg-red-500" },
+                  { key: "model_a", labelKey: "vote.model_a", color: "bg-blue-500" },
+                  { key: "model_b", labelKey: "vote.model_b", color: "bg-green-500" },
+                  { key: "tie", labelKey: "vote.tie", color: "bg-yellow-500" },
+                  { key: "both_bad", labelKey: "vote.both_bad", color: "bg-red-500" },
                 ].map((item) => {
                   const count =
                     stats.vote_distribution[
@@ -191,7 +240,7 @@ export default function AdminDashboardPage() {
                   return (
                     <div key={item.key}>
                       <div className="mb-1 flex items-center justify-between text-sm">
-                        <span className="text-text-secondary">{item.label}</span>
+                        <span className="text-text-secondary">{t(item.labelKey)}</span>
                         <span className="text-text-primary">
                           {count} ({percent.toFixed(1)}%)
                         </span>
@@ -210,7 +259,7 @@ export default function AdminDashboardPage() {
 
             {/* Daily Activity */}
             <Card>
-              <h2 className="mb-4 font-medium text-text-primary">每日投票</h2>
+              <h2 className="mb-4 font-medium text-text-primary">{t("admin.dashboard.daily_votes")}</h2>
               <div className="flex h-48 items-end gap-2">
                 {stats.daily_activity.map((day) => (
                   <div

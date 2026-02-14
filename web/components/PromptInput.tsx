@@ -3,6 +3,7 @@
 import { useCallback, useState, KeyboardEvent, useMemo, useRef, useEffect } from "react";
 import { Send, Plus, Globe, SlidersHorizontal } from "lucide-react";
 import { cn } from "./ui";
+import { useI18n } from "@/utils/i18n-context";
 
 interface PromptInputProps {
   onSubmit: (prompt: string) => void;
@@ -28,6 +29,7 @@ export function PromptInput({
   onSearchToggle,
 }: PromptInputProps) {
   const [value, setValue] = useState("");
+  const { t } = useI18n();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
   const toolsRef = useRef<HTMLDivElement>(null);
@@ -91,6 +93,7 @@ export function PromptInput({
         <div className="flex w-full items-end gap-2 p-3 px-4">
           <textarea
             ref={textareaRef}
+            data-prompt-input
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -133,7 +136,7 @@ export function PromptInput({
             <button
               type="button"
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-text-muted hover:bg-surface-elevated hover:text-text-primary transition-colors"
-              title="Attachments (coming soon)"
+              title={t("prompt.attachments_soon")}
             >
               <Plus className="h-5 w-5" />
             </button>
@@ -152,7 +155,7 @@ export function PromptInput({
                     >
                       <div className="flex items-center gap-2.5">
                         <Globe className="h-4 w-4 text-text-muted" />
-                        <span className="text-sm text-text-primary">Search</span>
+                        <span className="text-sm text-text-primary">{t("prompt.search")}</span>
                       </div>
                       {/* iOS-style Toggle Switch */}
                       <div className={cn(
@@ -180,7 +183,7 @@ export function PromptInput({
                   )}
                 >
                   <SlidersHorizontal className="h-4 w-4" />
-                  <span>Tools</span>
+                  <span>{t("prompt.tools")}</span>
                 </button>
               </div>
             )}
@@ -189,7 +192,7 @@ export function PromptInput({
       </div>
       
       <div className="mt-2 text-center text-xs text-text-muted">
-        Inputs are processed by third-party AI and responses may be inaccurate.
+        {t("prompt.disclaimer")}
       </div>
     </div>
   );

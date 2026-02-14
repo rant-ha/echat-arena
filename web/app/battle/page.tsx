@@ -14,6 +14,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { ModelSelector } from "@/components/ModelSelector";
 import { cn } from "@/components/ui";
 import { createSupabaseBrowserClient } from "@/utils/supabase/client";
+import { useI18n } from "@/utils/i18n-context";
 
 type VoteResult = {
   revealed_left?: { arm?: string; model_id?: string };
@@ -56,6 +57,9 @@ function armLabel(arm?: string): "Baseline" | "Strategy" | null {
 
 export default function BattlePage() {
   const router = useRouter();
+  const { t } = useI18n();
+  const tRef = useRef(t);
+  tRef.current = t;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -196,7 +200,7 @@ export default function BattlePage() {
         if (!meta?.session_id) {
           setVoteState((prev) => ({
             ...prev,
-            error: "缺少 session_id，无法继续对话",
+            error: tRef.current("battle.missing_session_detail"),
           }));
           return;
         }
@@ -258,7 +262,7 @@ export default function BattlePage() {
   useEffect(() => {
     if (status === "done" && prompt && leftText && rightText) {
       setConversationHistory(prev => {
-        const existingTurn = prev.find(t => t.turn === (currentTurn || 1));
+        const existingTurn = prev.find(turn => turn.turn === (currentTurn || 1));
         if (existingTurn) return prev;
         return [
           ...prev,
@@ -300,11 +304,11 @@ export default function BattlePage() {
   const handleVote = useCallback(
     async (choice: VoteChoice) => {
       if (!meta?.session_id) {
-        setVoteState((prev) => ({ ...prev, error: "缺少 session_id" }));
+        setVoteState((prev) => ({ ...prev, error: tRef.current("battle.missing_session") }));
         return;
       }
       if (!prompt.trim()) {
-        setVoteState((prev) => ({ ...prev, error: "缺少 prompt" }));
+        setVoteState((prev) => ({ ...prev, error: tRef.current("battle.missing_prompt") }));
         return;
       }
 
@@ -352,7 +356,7 @@ export default function BattlePage() {
 
         const rawText = await res.text();
         if (!res.ok) {
-          throw new Error(`投票失败：${rawText}`);
+          throw new Error(tRef.current("battle.vote_failed", { error: rawText }));
         }
 
         const json = safeJsonParse(rawText);
@@ -385,7 +389,7 @@ export default function BattlePage() {
           // 没有 vote_id 且不是 tie/both_bad: 显示错误
           setVoteState((prev) => ({
             ...prev,
-            error: "投票记录创建失败，请重试",
+            error: tRef.current("battle.vote_create_failed"),
           }));
         }
 
@@ -484,6 +488,40 @@ export default function BattlePage() {
     }
   }, [conversationHistory.length, leftText, rightText, isStreaming]);
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      // Skip if user is typing in an input/textarea/select
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return;
+
+      // Skip if IME is composing (e.g. Chinese input method)
+      if (e.isComposing) return;
+
+      // Vote shortcuts (only when vote section is visible)
+      if (isDone && !voteState.isRevealed && !voteState.isSubmitting) {
+        if (e.key === "1") { handleVote("left"); return; }
+        if (e.key === "2") { handleVote("right"); return; }
+        if (e.key === "3") { handleVote("tie"); return; }
+        if (e.key === "4") { handleVote("both_bad"); return; }
+      }
+
+      // Global shortcuts
+      if (e.key === "n") {
+        handleReset();
+        return;
+      }
+      if (e.key === "/") {
+        e.preventDefault();
+        const textarea = document.querySelector<HTMLTextAreaElement>("[data-prompt-input]");
+        textarea?.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isDone, voteState.isRevealed, voteState.isSubmitting, handleVote, handleReset]);
+
   return (
     <div className="flex h-screen bg-surface-primary text-text-primary overflow-hidden">
       {/* Desktop sidebar */}
@@ -505,7 +543,7 @@ export default function BattlePage() {
 
       {/* Mobile sidebar drawer */}
       {sidebarOpen && (
-        <div className="fixed inset-0 z-[60] md:hidden">
+        <div className="fixed inset-0 z-[60] md:hidden" role="dialog" aria-modal="true" aria-label="Navigation sidebar">
           <button
             type="button"
             aria-label="Close sidebar"
@@ -548,7 +586,7 @@ export default function BattlePage() {
                 className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-surface-elevated hover:text-text-primary transition-colors"
               >
                 <RotateCcw className="h-4 w-4" />
-                <span className="hidden sm:inline">New Round</span>
+                <span className="hidden sm:inline">{t("battle.new_round")}</span>
               </button>
             )}
           </div>
@@ -569,10 +607,10 @@ export default function BattlePage() {
                     <Swords className="h-12 w-12 text-text-primary" />
                   </div>
                   <h2 className="mb-4 text-3xl font-bold tracking-tight text-text-primary">
-                    Model Arena
+                    {t("battle.model_arena")}
                   </h2>
                   <p className="max-w-md text-text-secondary text-lg">
-                    Benchmark & Compare the Best AI Models
+                    {t("battle.subtitle")}
                   </p>
                 </motion.div>
               )}
@@ -631,7 +669,7 @@ export default function BattlePage() {
                 ))}
 
                 {/* Current streaming turn (when actively streaming) */}
-                {isStreaming && prompt && !conversationHistory.some(t => t.turn === (currentTurn || 1)) && (
+                {isStreaming && prompt && !conversationHistory.some(turn => turn.turn === (currentTurn || 1)) && (
                   <ConversationTurnBlock
                     key="current-streaming"
                     turnIndex={currentTurn || conversationHistory.length + 1}
@@ -659,10 +697,10 @@ export default function BattlePage() {
                       <div className="w-full max-w-3xl">
                         <div className="text-center mb-6">
                           <h3 className="text-lg font-semibold text-text-primary mb-1">
-                            Which response is better?
+                            {t("battle.which_better")}
                           </h3>
                           <p className="text-sm text-text-muted">
-                            Choose the best model to reveal their identities
+                            {t("battle.choose_best")}
                           </p>
                         </div>
 
@@ -690,10 +728,10 @@ export default function BattlePage() {
               onSearchToggle={toggleSearch}
               placeholder={
                 isStreaming
-                  ? "Generating..."
+                  ? t("battle.generating")
                   : voteState.isRevealed
-                    ? "Vote completed — redirecting..."
-                    : "Message Model Arena..."
+                    ? t("battle.vote_done_redirect")
+                    : t("battle.placeholder")
               }
             />
           </div>

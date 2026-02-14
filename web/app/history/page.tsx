@@ -6,6 +6,8 @@ import { History, Menu, X, ChevronRight, MessageSquare } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/utils/supabase/client";
 import { cn } from "@/components/ui";
 import { Sidebar } from "@/components/Sidebar";
+import { useI18n } from "@/utils/i18n-context";
+import { SkeletonTable } from "@/components/Skeleton";
 
 type VoteChoice = "model_a" | "model_b" | "tie" | "both_bad" | string;
 
@@ -43,10 +45,10 @@ function truncate(text: string, maxLen: number) {
   return t.slice(0, maxLen - 1) + "…";
 }
 
-function formatTime(iso: string) {
+function formatTime(iso: string, loc: string = "zh") {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString();
+  return d.toLocaleString(loc === "en" ? "en-US" : "zh-CN");
 }
 
 /**
@@ -67,20 +69,22 @@ function getVotePosition(vote: VoteChoice | null, modelConfig?: ModelConfig | nu
   return null;
 }
 
-function voteLabel(v: VoteChoice | null, modelConfig?: ModelConfig | null): string {
-  if (!v) return "未投票";
-  if (v === "tie") return "平局";
-  if (v === "both_bad") return "都不行";
+function voteLabel(v: VoteChoice | null, modelConfig?: ModelConfig | null, t?: (key: string) => string): string {
+  const tr = t || ((key: string) => key);
+  if (!v) return tr("vote.no_vote");
+  if (v === "tie") return tr("vote.tie");
+  if (v === "both_bad") return tr("vote.both_bad");
 
   const position = getVotePosition(v, modelConfig);
-  if (position === "left") return "选了 Model A";
-  if (position === "right") return "选了 Model B";
+  if (position === "left") return tr("vote.chose_model_a");
+  if (position === "right") return tr("vote.chose_model_b");
 
   return String(v);
 }
 
 export default function HistoryPage() {
   const router = useRouter();
+  const { t, locale } = useI18n();
   const [rows, setRows] = useState<VoteRow[]>([]);
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -121,7 +125,7 @@ export default function HistoryPage() {
         } = await supabase.auth.getUser();
 
         if (authErr) throw authErr;
-        if (!user) throw new Error("未登录");
+        if (!user) throw new Error(t("common.not_logged_in"));
 
         // 查询必要字段，包含 model_config 用于正确显示投票位置
         const { data, error: dbErr } = await supabase
@@ -197,7 +201,7 @@ export default function HistoryPage() {
 
       {/* Mobile sidebar drawer */}
       {sidebarOpen && (
-        <div className="fixed inset-0 z-[60] md:hidden">
+        <div className="fixed inset-0 z-[60] md:hidden" role="dialog" aria-modal="true" aria-label="Navigation sidebar">
           <button
             type="button"
             aria-label="Close sidebar"
@@ -233,10 +237,10 @@ export default function HistoryPage() {
               <History className="h-5 w-5 text-text-muted" />
               <div>
                 <h1 className="text-sm font-semibold text-text-primary">
-                  History
+                  {t("history.title")}
                 </h1>
                 <p className="hidden text-xs text-text-muted sm:block">
-                  共 {rows.length} 条对话记录
+                  {t("history.total_records", { count: rows.length })}
                 </p>
               </div>
             </div>
@@ -247,20 +251,18 @@ export default function HistoryPage() {
         <main className="flex-1 overflow-y-auto pb-10">
           <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6">
             {loading ? (
-              <div className="rounded-xl border border-border-faint p-5">
-                <p className="text-sm text-text-muted">加载中…</p>
-              </div>
+              <SkeletonTable rows={5} />
             ) : error ? (
               <div className="rounded-xl border border-red-400/30 bg-red-500/10 p-5">
                 <p className="text-sm text-red-300">{error}</p>
                 <p className="mt-2 text-xs text-text-muted">
-                  如果你刚登录/注册，刷新一次页面通常即可（依赖 Supabase cookie 同步）。
+                  {t("history.cookie_hint")}
                 </p>
               </div>
             ) : rows.length === 0 ? (
               <div className="rounded-xl border border-border-faint p-5">
                 <p className="text-sm text-text-muted">
-                  暂无历史记录。去 <a className="text-interactive-accent hover:underline" href="/battle">/battle</a> 完成一次投票后再来。
+                  {t("history.no_history")}
                 </p>
               </div>
             ) : (
@@ -269,7 +271,7 @@ export default function HistoryPage() {
                 {drafts.length > 0 && (
                   <div className="mb-8">
                     <h2 className="mb-3 text-sm font-medium text-text-muted">
-                      未投票的对话
+                      {t("history.unvoted")}
                     </h2>
                     <div className="space-y-2">
                       {drafts.map((draft) => (
@@ -291,11 +293,11 @@ export default function HistoryPage() {
                                 {truncate(draft.prompt, 80)}
                               </p>
                               <span className="shrink-0 rounded bg-yellow-500/20 px-2 py-0.5 text-xs font-medium text-yellow-500">
-                                未投票
+                                {t("vote.no_vote")}
                               </span>
                             </div>
                             <div className="mt-1 flex items-center gap-2 text-xs text-text-muted">
-                              <span>{formatTime(draft.updated_at)}</span>
+                              <span>{formatTime(draft.updated_at, locale)}</span>
                               <span>•</span>
                               <span>
                                 {draft.model_a} vs {draft.model_b}
@@ -313,7 +315,7 @@ export default function HistoryPage() {
                 <div>
                   {rows.length > 0 && (
                     <h2 className="mb-3 text-sm font-medium text-text-muted">
-                      投票历史
+                      {t("history.voted")}
                     </h2>
                   )}
                   <div className="space-y-2">
@@ -335,9 +337,9 @@ export default function HistoryPage() {
                             {truncate(r.prompt, 80)}
                           </p>
                           <div className="mt-1 flex items-center gap-2 text-xs text-text-muted">
-                            <span>{formatTime(r.created_at)}</span>
+                            <span>{formatTime(r.created_at, locale)}</span>
                             <span>•</span>
-                            <span>{voteLabel(r.user_vote, r.model_config)}</span>
+                            <span>{voteLabel(r.user_vote, r.model_config, t)}</span>
                           </div>
                         </div>
                         <ChevronRight className="h-5 w-5 shrink-0 text-text-muted" />
