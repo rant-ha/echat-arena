@@ -200,3 +200,30 @@ class HybridSessionStore(SessionStore):
                     session_id="*",
                     error=str(exc),
                 )
+
+    # ------------------------------------------------------------------
+    # admin operations (delegate to L2 — persistent store)
+    # ------------------------------------------------------------------
+
+    async def list_sessions(
+        self,
+        page: int = 1,
+        page_size: int = 50,
+        include_deleted: bool = False,
+    ) -> Dict[str, Any]:
+        """List sessions — admin operation, always hits L2."""
+        return await self._l2.list_sessions(
+            page=page, page_size=page_size, include_deleted=include_deleted
+        )
+
+    async def soft_delete(self, session_id: str) -> bool:
+        """Soft-delete a session — admin operation, always hits L2."""
+        return await self._l2.soft_delete(session_id)
+
+    async def restore_session(self, session_id: str) -> bool:
+        """Restore a soft-deleted session — admin operation, always hits L2."""
+        return await self._l2.restore_session(session_id)
+
+    async def cleanup_deleted_sessions(self, max_age_days: int = 30) -> int:
+        """Clean up old deleted sessions — admin operation, always hits L2."""
+        return await self._l2.cleanup_deleted_sessions(max_age_days)
