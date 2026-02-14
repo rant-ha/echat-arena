@@ -48,7 +48,7 @@ async def list_conversations(
         offset = (page - 1) * page_size
 
         # Sanitize inputs to prevent PostgREST filter injection
-        safe_search = re.sub(r"[(),%.\"\\'*_]", "", search) if search else ""
+        safe_search = re.sub(r"[(),%\"\\'*_]", "", search) if search else ""
         date_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}")
         if date_from and not date_pattern.match(date_from):
             date_from = ""
@@ -146,7 +146,7 @@ async def export_conversations(
         MAX_EXPORT = 10000
 
         # Same sanitization as list_conversations
-        safe_search = re.sub(r"[(),%.\"\\'*_]", "", search) if search else ""
+        safe_search = re.sub(r"[(),%\"\\'*_]", "", search) if search else ""
         date_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
         VALID_VOTE_TYPES = {"model_a", "model_b", "tie", "both_bad"}
