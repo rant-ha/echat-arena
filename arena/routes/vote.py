@@ -3,6 +3,7 @@
 import sys
 from typing import Any, Dict, List, Optional
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Body, Depends
 from fastapi.responses import JSONResponse
 
@@ -10,6 +11,7 @@ from arena.config import (
     API_PREFIX,
     REPLY_MODEL_NAME, BASELINE_MODEL_ID,
     ALLOWED_VOTES,
+    SUPABASE_URL, SUPABASE_SERVICE_KEY,
 )
 from arena.utils import _utc_now_iso, _json_dumps, _response, _error, log_error
 from arena.evaluator import _judge_with_ai
@@ -260,6 +262,24 @@ async def vote(background_tasks: BackgroundTasks, body: Dict[str, Any] = Body(..
             print(f"[WARN] bg_upload_snapshot failed session={session_id}: {exc}", file=sys.stderr)
 
     background_tasks.add_task(_bg_upload_snapshot)
+
+    # Background: best-effort delete draft after vote
+    async def _bg_delete_draft() -> None:
+        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+            return
+        try:
+            draft_url = f"{SUPABASE_URL}/rest/v1/draft_conversations"
+            draft_headers = {
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+            }
+            draft_params = {"session_id": f"eq.{session_id}"}
+            async with httpx.AsyncClient() as client:
+                await client.delete(draft_url, headers=draft_headers, params=draft_params, timeout=10.0)
+        except Exception as exc:
+            print(f"[WARN] draft delete after vote failed session={session_id}: {exc}", file=sys.stderr)
+
+    background_tasks.add_task(_bg_delete_draft)
 
     revealed_left = {"arm": left.get("arm"), "model_id": left.get("model_id")}
     revealed_right = {"arm": right.get("arm"), "model_id": right.get("model_id")}

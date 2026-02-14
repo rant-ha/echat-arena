@@ -204,6 +204,26 @@ async def get_single_draft(session_id: str, auth: dict = Depends(require_auth)) 
                 if draft_user_id and draft_user_id != get_user_id(auth):
                     return JSONResponse({"ok": False, "error": "Not found"}, status_code=404, headers={"Cache-Control": "no-store"})
 
+                # Defensive check: draft exists but already voted → clean up stale draft
+                existing_vote_id = None
+                try:
+                    existing_vote_id = await _fetch_vote_id_by_session_id_supabase(session_id)
+                except Exception:
+                    pass  # Query failed, skip check and return draft normally
+
+                if existing_vote_id:
+                    # Clean up stale draft
+                    try:
+                        async with httpx.AsyncClient() as cleanup_client:
+                            await cleanup_client.delete(url, headers=headers, params=params, timeout=10.0)
+                    except Exception as exc:
+                        print(f"[WARN] failed to cleanup voted draft session={session_id}: {exc}", file=sys.stderr)
+                    return JSONResponse(
+                        {"ok": False, "error": "Draft not found", "vote_id": existing_vote_id},
+                        status_code=404,
+                        headers={"Cache-Control": "no-store"},
+                    )
+
         return JSONResponse({"ok": True, "draft": data[0]})
     except Exception as e:
         return JSONResponse({"ok": False, "error": "Internal server error"}, status_code=500)

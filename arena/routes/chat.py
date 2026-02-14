@@ -1,5 +1,7 @@
 """Post-vote chat routes."""
 
+import sys
+import time
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
@@ -96,6 +98,13 @@ async def post_vote_chat(req: Request, body: Dict[str, Any] = Body(...), auth: d
                 "conversation_history": vote_record.get("conversation_history", []),
             }
 
+            # Cache to session store so subsequent messages hit directly
+            try:
+                sess["_ts"] = time.time()
+                await get_state().session_store.put(session_id, sess)
+            except Exception as exc:
+                print(f"[WARN] failed to cache session from vote_id lookup session={session_id}: {exc}", file=sys.stderr)
+
     if not sess:
         sess = await get_state().session_store.get(session_id)
     if not sess:
@@ -103,6 +112,13 @@ async def post_vote_chat(req: Request, body: Dict[str, Any] = Body(...), auth: d
         sess = await _reconstruct_session_from_votes(session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="Vote not found for this session")
+
+        # Cache reconstructed session so subsequent messages don't re-query DB
+        try:
+            sess["_ts"] = time.time()
+            await get_state().session_store.put(session_id, sess)
+        except Exception as exc:
+            print(f"[WARN] failed to cache reconstructed session={session_id}: {exc}", file=sys.stderr)
 
     # Check if session has voted (winner must be set)
     winner = sess.get("winner")
