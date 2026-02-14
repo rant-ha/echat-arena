@@ -195,6 +195,7 @@ async def _fetch_all_votes(
     fields: str = "id,created_at,user_vote,user_id,turn_count,base_model_name,winner_type,prompt",
 ) -> List[Dict[str, Any]]:
     """Fetch all votes with pagination (PostgREST default limit is 1000)."""
+    MAX_VOTES = 50000
     all_votes: List[Dict[str, Any]] = []
     offset = 0
     batch_size = 1000
@@ -223,6 +224,8 @@ async def _fetch_all_votes(
         if len(batch) < batch_size:
             break
         offset += batch_size
+        if offset >= MAX_VOTES:
+            break
     return all_votes
 
 

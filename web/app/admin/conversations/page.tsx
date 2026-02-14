@@ -118,6 +118,9 @@ export default function ConversationsPage() {
   const [modelFilter, setModelFilter] = useState("");
   const [showFilters, setShowFilters] = useState(false);
 
+  // export
+  const [exporting, setExporting] = useState(false);
+
   // expand
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -193,54 +196,85 @@ export default function ConversationsPage() {
 
   /* ---------- CSV export ---------- */
 
-  const handleExportCSV = () => {
-    if (conversations.length === 0) return;
-
-    const headers = [
-      t("admin.conversations.csv_time"),
-      t("admin.conversations.csv_email"),
-      t("admin.conversations.csv_prompt"),
-      t("admin.conversations.csv_vote"),
-      t("admin.conversations.csv_model"),
-      t("admin.conversations.csv_turns"),
-      t("admin.conversations.csv_winner"),
-    ];
-
-    const escapeCSV = (s: string) => {
-      let v = s.replace(/"/g, '""');
-      // Prevent DDE/formula injection
-      if (/^[=+\-@\t\r|]/.test(v)) {
-        v = "'" + v;
-      }
-      if (/[,"\n\r]/.test(v)) {
-        v = `"${v}"`;
-      }
-      return v;
-    };
-
-    const rows = conversations.map((c) =>
-      [
-        formatDate(c.created_at, locale),
-        c.user_email,
-        c.prompt.replace(/\n/g, " "),
-        voteLabel(c.user_vote, t),
-        c.base_model_name || "-",
-        String(c.turn_count),
-        winnerLabel(c.winner_type),
-      ]
-        .map(escapeCSV)
-        .join(",")
-    );
-
-    const csv = "\uFEFF" + headers.join(",") + "\n" + rows.join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `conversations_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const escapeCSV = (s: string) => {
+    let v = s.replace(/"/g, '""');
+    // Prevent DDE/formula injection
+    if (/^[=+\-@\t\r|]/.test(v)) {
+      v = "'" + v;
+    }
+    if (/[,"\n\r]/.test(v)) {
+      v = `"${v}"`;
+    }
+    return v;
   };
+
+  const handleExportCSV = useCallback(async () => {
+    const token = getToken();
+    if (!token) return;
+
+    setExporting(true);
+    try {
+      // Build query params matching current filters
+      const params = new URLSearchParams();
+      if (search) params.set("search", search);
+      if (voteFilter) params.set("vote_type", voteFilter);
+      if (dateFrom) params.set("date_from", dateFrom);
+      if (dateTo) params.set("date_to", dateTo);
+      if (modelFilter) params.set("model", modelFilter);
+
+      const res = await fetch(
+        `/api/proxy/api/arena/admin/conversations/export?${params.toString()}`,
+        { headers: { "admin-token": token } }
+      );
+      const data = await res.json();
+
+      if (!data.ok || !data.data?.conversations) {
+        setError(tRef.current("common.operation_failed"));
+        return;
+      }
+
+      const allConversations = data.data.conversations as Conversation[];
+
+      if (allConversations.length === 0) return;
+
+      const csvHeaders = [
+        tRef.current("admin.conversations.csv_time"),
+        tRef.current("admin.conversations.csv_email"),
+        tRef.current("admin.conversations.csv_prompt"),
+        tRef.current("admin.conversations.csv_vote"),
+        tRef.current("admin.conversations.csv_model"),
+        tRef.current("admin.conversations.csv_turns"),
+        tRef.current("admin.conversations.csv_winner"),
+      ];
+
+      const rows = allConversations.map((c) =>
+        [
+          formatDate(c.created_at, locale),
+          c.user_email,
+          (c.prompt || "").replace(/\n/g, " "),
+          voteLabel(c.user_vote, tRef.current),
+          c.base_model_name || "-",
+          String(c.turn_count),
+          winnerLabel(c.winner_type),
+        ]
+          .map(escapeCSV)
+          .join(",")
+      );
+
+      const csv = "\uFEFF" + csvHeaders.join(",") + "\n" + rows.join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `conversations_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError(tRef.current("common.operation_failed"));
+    } finally {
+      setExporting(false);
+    }
+  }, [getToken, search, voteFilter, dateFrom, dateTo, modelFilter, locale]);
 
   /* ---------- render ---------- */
 
@@ -262,11 +296,14 @@ export default function ConversationsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" onClick={handleExportCSV} disabled={conversations.length === 0}>
-            <Download className="mr-2 h-4 w-4" />
-            {t("common.export_csv")}
+          <Button variant="ghost" onClick={handleExportCSV} disabled={exporting}>
+            {exporting ? (
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-2 h-4 w-4" />
+            )}
+            {exporting ? tRef.current("admin.conversations.exporting") : t("common.export_csv")}
           </Button>
-          <span className="text-xs text-text-muted">{t("admin.conversations.export_current_page")}</span>
           <Button variant="ghost" onClick={fetchConversations} disabled={loading}>
             <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           </Button>
