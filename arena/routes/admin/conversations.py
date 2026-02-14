@@ -99,8 +99,10 @@ async def list_conversations(
                 timeout=30.0
             )
 
-            if resp.status_code != 200:
-                return _error(f"Failed to fetch conversations: {resp.text}", status=500)
+            # PostgREST returns 206 Partial Content when using
+            # Prefer: count=exact with paginated results
+            if resp.status_code not in (200, 206):
+                return _error("Failed to fetch conversations", status=500)
 
             conversations = resp.json()
 
