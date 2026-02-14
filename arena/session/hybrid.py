@@ -217,8 +217,21 @@ class HybridSessionStore(SessionStore):
         )
 
     async def soft_delete(self, session_id: str) -> bool:
-        """Soft-delete a session — admin operation, always hits L2."""
-        return await self._l2.soft_delete(session_id)
+        """Soft-delete a session — admin operation, always hits L2.
+
+        Also invalidates L1 so ``get()`` won't serve the deleted session.
+        """
+        result = await self._l2.soft_delete(session_id)
+        if result:
+            try:
+                await self._l1._redis.delete(f"session:{session_id}")
+            except Exception as exc:
+                self._log(
+                    "hybrid_l1_soft_delete_invalidate_error",
+                    session_id,
+                    error=str(exc),
+                )
+        return result
 
     async def restore_session(self, session_id: str) -> bool:
         """Restore a soft-deleted session — admin operation, always hits L2."""

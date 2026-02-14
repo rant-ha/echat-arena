@@ -179,3 +179,35 @@ class SessionStore:
         items = sorted(self._sessions.items(), key=lambda kv: float(kv[1].get("_ts", 0)))
         for sid, _ in items[: max(0, len(items) - _MAX_SESSIONS)]:
             self._sessions.pop(sid, None)
+
+    # ------------------------------------------------------------------
+    # admin operations (stubs — overridden by persistent stores)
+    # ------------------------------------------------------------------
+
+    async def list_sessions(
+        self,
+        page: int = 1,
+        page_size: int = 50,
+        include_deleted: bool = False,
+    ) -> Dict[str, Any]:
+        """Return empty result — memory store does not support session listing."""
+        return {
+            "success": False,
+            "error": "Session listing not supported in memory store",
+            "total": 0,
+            "page": page,
+            "page_size": page_size,
+            "sessions": [],
+        }
+
+    async def soft_delete(self, session_id: str) -> bool:
+        """No-op — memory store does not support soft deletion."""
+        return False
+
+    async def restore_session(self, session_id: str) -> bool:
+        """No-op — memory store does not support session restore."""
+        return False
+
+    async def cleanup_deleted_sessions(self, max_age_days: int = 30) -> int:
+        """No-op — memory store does not support cleanup."""
+        return 0

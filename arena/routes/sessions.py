@@ -12,9 +12,9 @@ router = APIRouter()
 
 @router.post(f"{API_PREFIX}/sessions/list")
 async def list_sessions(
-    page: int = 1,
-    page_size: int = 50,
-    include_deleted: bool = False,
+    page: int = Body(1),
+    page_size: int = Body(50),
+    include_deleted: bool = Body(False),
     admin_token: str = Header(None, alias="admin-token")
 ) -> JSONResponse:
     """
