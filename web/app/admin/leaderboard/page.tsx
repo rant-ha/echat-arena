@@ -13,52 +13,9 @@ import { Card, Button } from "@/components/ui";
 import { cn } from "@/components/ui";
 import { useI18n } from "@/utils/i18n-context";
 import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
-import { GREEN, YELLOW, RED } from "@/utils/chart-constants";
-
-// ---------- types ----------
-
-interface LeaderboardEntry {
-  strategy_name: string;
-  rating: number;
-  uncertainty: number;
-  win_rate: number;
-  wins: number;
-  losses: number;
-  ties: number;
-  total_battles: number;
-}
-
-interface Statistics {
-  p_value: number;
-  effect_size: number;
-  effect_label: string;
-  wilson_ci_lower: number;
-  wilson_ci_upper: number;
-  confidence_level: string;
-  is_significant: boolean;
-  sample_size: number;
-}
-
-interface LeaderboardData {
-  leaderboard: LeaderboardEntry[];
-  statistics: Statistics;
-  total_votes: number;
-  votes_truncated: boolean;
-  period: string;
-  computed_at: string;
-}
-
-type Period = "1d" | "7d" | "30d" | "all";
-
-// ---------- constants ----------
-
-const CONFIDENCE_COLORS: Record<string, string> = {
-  very_high: "bg-green-500/15 text-green-400 border-green-500/30",
-  high: "bg-green-500/15 text-green-400 border-green-500/30",
-  moderate: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
-  low: "bg-orange-500/15 text-orange-400 border-orange-500/30",
-  none: "bg-zinc-500/15 text-zinc-400 border-zinc-500/30",
-};
+import { GREEN, YELLOW, RED, CONFIDENCE_COLORS, confidenceLabelKey } from "@/utils/chart-constants";
+import { StatsCard } from "@/components/admin/StatsCard";
+import type { LeaderboardData, Period } from "@/types/admin";
 
 // ---------- component ----------
 
@@ -128,17 +85,6 @@ export default function LeaderboardPage() {
       setComputing(false);
       setTimeout(() => setComputeMsg(null), 3000);
     }
-  };
-
-  const confidenceLabelKey = (level: string) => {
-    const map: Record<string, string> = {
-      very_high: "admin.leaderboard.confidence_very_high",
-      high: "admin.leaderboard.confidence_high",
-      moderate: "admin.leaderboard.confidence_moderate",
-      low: "admin.leaderboard.confidence_low",
-      none: "admin.leaderboard.confidence_none",
-    };
-    return map[level] || map.none;
   };
 
   // ---------- render ----------
@@ -217,14 +163,14 @@ export default function LeaderboardPage() {
         <div className="space-y-6">
           {/* Stats Cards */}
           <div className="grid gap-4 sm:grid-cols-2">
-            <OverviewCard
+            <StatsCard
               icon={Target}
-              label={t("admin.leaderboard.total_votes")}
+              title={t("admin.leaderboard.total_votes")}
               value={data.total_votes}
             />
-            <OverviewCard
+            <StatsCard
               icon={Users}
-              label={t("admin.leaderboard.strategies")}
+              title={t("admin.leaderboard.strategies")}
               value={data.leaderboard.length}
             />
           </div>
@@ -410,39 +356,6 @@ export default function LeaderboardPage() {
           </Card>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-// ---------- helper component ----------
-
-function OverviewCard({
-  icon: Icon,
-  label,
-  value,
-  accent,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string | number;
-  accent?: string;
-}) {
-  return (
-    <div className="rounded-xl border border-border-faint bg-surface-secondary p-6">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-text-muted">{label}</p>
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-interactive-accent/10">
-          <Icon className="h-5 w-5 text-interactive-accent" />
-        </div>
-      </div>
-      <p
-        className={cn(
-          "mt-3 text-3xl font-semibold",
-          accent ?? "text-text-primary"
-        )}
-      >
-        {typeof value === "number" ? value.toLocaleString() : value}
-      </p>
     </div>
   );
 }

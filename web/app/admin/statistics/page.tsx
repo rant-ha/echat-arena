@@ -27,74 +27,8 @@ import { Card, Button } from "@/components/ui";
 import { cn } from "@/components/ui";
 import { useI18n } from "@/utils/i18n-context";
 import { TOOLTIP_STYLE, ACCENT, GREEN, YELLOW, RED, BLUE, PIE_COLORS } from "@/utils/chart-constants";
-
-// ---------- types ----------
-
-interface ModelPerformance {
-  model: string;
-  total_battles: number;
-  strategy_wins: number;
-  strategy_win_rate: number;
-  avg_turn_count: number;
-}
-
-interface StrategyOverview {
-  total_votes: number;
-  strategy_wins: number;
-  baseline_wins: number;
-  undecided: number;
-  strategy_win_rate: number;
-}
-
-interface HourlyItem {
-  hour: number;
-  count: number;
-}
-
-interface DayOfWeekItem {
-  day: number;
-  count: number;
-}
-
-interface UserFunnel {
-  users_1_plus: number;
-  users_5_plus: number;
-  users_10_plus: number;
-  users_20_plus: number;
-}
-
-interface AvgSession {
-  current_avg: number;
-  previous_avg: number;
-  trend_pct: number;
-  current_sample: number;
-  previous_sample: number;
-}
-
-interface TopPrompt {
-  prompt_prefix: string;
-  count: number;
-}
-
-interface DetailedStats {
-  model_performance: ModelPerformance[];
-  strategy_overview: StrategyOverview;
-  hourly_distribution: HourlyItem[];
-  day_of_week_distribution: DayOfWeekItem[];
-  user_funnel: UserFunnel;
-  avg_session_length: AvgSession;
-  top_prompts: TopPrompt[];
-  period: string;
-}
-
-interface VoteDistribution {
-  model_a: number;
-  model_b: number;
-  tie: number;
-  both_bad: number;
-}
-
-type Period = "1d" | "7d" | "30d" | "all";
+import { StatsCard } from "@/components/admin/StatsCard";
+import type { DetailedStats, VoteDistribution, Period } from "@/types/admin";
 
 // ---------- constants ----------
 
@@ -188,7 +122,7 @@ export default function StatisticsPage() {
     : [];
 
   const promptData =
-    detailed?.top_prompts.map((p) => ({
+    detailed?.top_prompts?.map((p) => ({
       name:
         p.prompt_prefix.length > 30
           ? p.prompt_prefix.slice(0, 30) + "..."
@@ -270,26 +204,26 @@ export default function StatisticsPage() {
         <div className="space-y-6">
           {/* -------- Strategy Overview Cards -------- */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <OverviewCard
+            <StatsCard
               icon={Target}
-              label={t("admin.stats.total_votes")}
+              title={t("admin.stats.total_votes")}
               value={detailed.strategy_overview.total_votes}
             />
-            <OverviewCard
+            <StatsCard
               icon={Trophy}
-              label={t("admin.stats.strategy_wins")}
+              title={t("admin.stats.strategy_wins")}
               value={detailed.strategy_overview.strategy_wins}
               accent="text-green-400"
             />
-            <OverviewCard
+            <StatsCard
               icon={ShieldX}
-              label={t("admin.stats.baseline_wins")}
+              title={t("admin.stats.baseline_wins")}
               value={detailed.strategy_overview.baseline_wins}
               accent="text-red-400"
             />
-            <OverviewCard
+            <StatsCard
               icon={Percent}
-              label={t("admin.stats.win_rate")}
+              title={t("admin.stats.win_rate")}
               value={`${detailed.strategy_overview.strategy_win_rate.toFixed(1)}%`}
               accent={
                 detailed.strategy_overview.strategy_win_rate >= 50
@@ -640,39 +574,6 @@ export default function StatisticsPage() {
           )}
         </div>
       ) : null}
-    </div>
-  );
-}
-
-// ---------- helper component ----------
-
-function OverviewCard({
-  icon: Icon,
-  label,
-  value,
-  accent,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string | number;
-  accent?: string;
-}) {
-  return (
-    <div className="rounded-xl border border-border-faint bg-surface-secondary p-6">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-text-muted">{label}</p>
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-interactive-accent/10">
-          <Icon className="h-5 w-5 text-interactive-accent" />
-        </div>
-      </div>
-      <p
-        className={cn(
-          "mt-3 text-3xl font-semibold",
-          accent ?? "text-text-primary"
-        )}
-      >
-        {typeof value === "number" ? value.toLocaleString() : value}
-      </p>
     </div>
   );
 }

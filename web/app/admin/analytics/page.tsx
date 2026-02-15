@@ -23,103 +23,11 @@ import { Card, Button } from "@/components/ui";
 import { cn } from "@/components/ui";
 import { useI18n } from "@/utils/i18n-context";
 import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
-import { TOOLTIP_STYLE, ACCENT, GREEN, YELLOW, RED } from "@/utils/chart-constants";
-
-// ---------- types ----------
-
-interface ModelPerformance {
-  model: string;
-  total_battles: number;
-  strategy_wins: number;
-  strategy_win_rate: number;
-  avg_turn_count: number;
-}
-
-interface StrategyOverview {
-  total_votes: number;
-  strategy_wins: number;
-  baseline_wins: number;
-  undecided: number;
-  strategy_win_rate: number;
-}
-
-interface UserFunnel {
-  users_1_plus: number;
-  users_5_plus: number;
-  users_10_plus: number;
-  users_20_plus: number;
-}
-
-interface AvgSession {
-  current_avg: number;
-  previous_avg: number;
-  trend_pct: number;
-  current_sample: number;
-  previous_sample: number;
-}
-
-interface HourlyItem {
-  hour: number;
-  count: number;
-}
-
-interface DayOfWeekItem {
-  day: number;
-  count: number;
-}
-
-interface DetailedStats {
-  model_performance: ModelPerformance[];
-  strategy_overview: StrategyOverview;
-  hourly_distribution: HourlyItem[];
-  day_of_week_distribution: DayOfWeekItem[];
-  user_funnel: UserFunnel;
-  avg_session_length: AvgSession;
-  period: string;
-}
-
-interface LeaderboardEntry {
-  strategy_name: string;
-  rating: number;
-  uncertainty: number;
-  win_rate: number;
-  wins: number;
-  losses: number;
-  ties: number;
-  total_battles: number;
-}
-
-interface LeaderboardStatistics {
-  p_value: number;
-  effect_size: number;
-  effect_label: string;
-  wilson_ci_lower: number;
-  wilson_ci_upper: number;
-  confidence_level: string;
-  is_significant: boolean;
-  sample_size: number;
-}
-
-interface LeaderboardData {
-  leaderboard: LeaderboardEntry[];
-  statistics: LeaderboardStatistics;
-  total_votes: number;
-  votes_truncated: boolean;
-  period: string;
-  computed_at: string;
-}
-
-type Period = "1d" | "7d" | "30d" | "all";
+import { TOOLTIP_STYLE, ACCENT, GREEN, YELLOW, RED, CONFIDENCE_COLORS, confidenceLabelKey } from "@/utils/chart-constants";
+import { StatsCard } from "@/components/admin/StatsCard";
+import type { LeaderboardData, DetailedStats, Period } from "@/types/admin";
 
 // ---------- constants ----------
-
-const CONFIDENCE_COLORS: Record<string, string> = {
-  very_high: "bg-green-500/15 text-green-400 border-green-500/30",
-  high: "bg-green-500/15 text-green-400 border-green-500/30",
-  moderate: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
-  low: "bg-orange-500/15 text-orange-400 border-orange-500/30",
-  none: "bg-zinc-500/15 text-zinc-400 border-zinc-500/30",
-};
 
 const DAY_LABELS_ZH = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const DAY_LABELS_EN = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -219,17 +127,6 @@ export default function AnalyticsPage() {
       )
     : [];
 
-  const confidenceLabelKey = (level: string) => {
-    const map: Record<string, string> = {
-      very_high: "admin.leaderboard.confidence_very_high",
-      high: "admin.leaderboard.confidence_high",
-      moderate: "admin.leaderboard.confidence_moderate",
-      low: "admin.leaderboard.confidence_low",
-      none: "admin.leaderboard.confidence_none",
-    };
-    return map[level] || map.none;
-  };
-
   // ---------- render ----------
 
   return (
@@ -293,9 +190,9 @@ export default function AnalyticsPage() {
         <div className="space-y-6">
           {/* -------- Key Metrics Cards -------- */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <OverviewCard
+            <StatsCard
               icon={Percent}
-              label={t("admin.analytics.strategy_win_rate")}
+              title={t("admin.analytics.strategy_win_rate")}
               value={
                 detailed
                   ? `${detailed.strategy_overview.strategy_win_rate.toFixed(1)}%`
@@ -307,19 +204,19 @@ export default function AnalyticsPage() {
                   : "text-red-400"
               }
             />
-            <OverviewCard
+            <StatsCard
               icon={Trophy}
-              label={t("admin.analytics.total_battles")}
+              title={t("admin.analytics.total_battles")}
               value={leaderboard?.total_votes ?? "-"}
             />
-            <OverviewCard
+            <StatsCard
               icon={Users}
-              label={t("admin.analytics.active_users")}
+              title={t("admin.analytics.active_users")}
               value={detailed?.user_funnel.users_1_plus ?? "-"}
             />
-            <OverviewCard
+            <StatsCard
               icon={Activity}
-              label={t("admin.analytics.avg_turns")}
+              title={t("admin.analytics.avg_turns")}
               value={
                 detailed
                   ? detailed.avg_session_length.current_avg.toFixed(1)
@@ -608,39 +505,6 @@ export default function AnalyticsPage() {
           </Card>
         </div>
       )}
-    </div>
-  );
-}
-
-// ---------- helper component ----------
-
-function OverviewCard({
-  icon: Icon,
-  label,
-  value,
-  accent,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string | number;
-  accent?: string;
-}) {
-  return (
-    <div className="rounded-xl border border-border-faint bg-surface-secondary p-6">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-text-muted">{label}</p>
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-interactive-accent/10">
-          <Icon className="h-5 w-5 text-interactive-accent" />
-        </div>
-      </div>
-      <p
-        className={cn(
-          "mt-3 text-3xl font-semibold",
-          accent ?? "text-text-primary"
-        )}
-      >
-        {typeof value === "number" ? value.toLocaleString() : value}
-      </p>
     </div>
   );
 }

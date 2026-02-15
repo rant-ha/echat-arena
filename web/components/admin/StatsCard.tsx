@@ -13,6 +13,7 @@ interface StatsCardProps {
     value: number;
     isPositive: boolean;
   };
+  accent?: string;
   className?: string;
 }
 
@@ -22,6 +23,7 @@ export function StatsCard({
   icon: Icon,
   description,
   trend,
+  accent,
   className,
 }: StatsCardProps) {
   const { t } = useI18n();
@@ -40,7 +42,9 @@ export function StatsCard({
         </div>
       </div>
       <div className="mt-3">
-        <p className="text-3xl font-semibold text-text-primary">{value}</p>
+        <p className={cn("text-3xl font-semibold", accent ?? "text-text-primary")}>
+          {typeof value === "number" ? value.toLocaleString() : value}
+        </p>
         {description && (
           <p className="mt-1 text-sm text-text-muted">{description}</p>
         )}
