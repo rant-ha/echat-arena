@@ -13,25 +13,43 @@ export default function GoogleLoginButton({ redirectTo = "/battle" }: GoogleLogi
   const [ready, setReady] = useState(false);
   const [hashedNonce, setHashedNonce] = useState("");
   const [loginUri, setLoginUri] = useState("");
-  const [buttonWidth, setButtonWidth] = useState<number>(400);
+  const [buttonWidth, setButtonWidth] = useState<number>(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // 监听容器宽度变化
+  // 监听容器宽度变化（带防抖）
   useEffect(() => {
+    let resizeTimer: NodeJS.Timeout;
+
     const updateWidth = () => {
       if (containerRef.current) {
         const width = containerRef.current.offsetWidth;
-        // Google 按钮最小宽度约 200px，最大约 400px
-        setButtonWidth(Math.max(200, Math.min(width, 600)));
+        // Google 按钮宽度自适应容器
+        // 在桌面端最大 400px，在手机端占满容器
+        const maxWidth = window.innerWidth < 640 ? width : Math.min(width, 400);
+        setButtonWidth(maxWidth);
       }
     };
 
-    updateWidth();
+    const handleResize = () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(updateWidth, 100); // 100ms 防抖
+    };
 
-    // 监听窗口大小变化
-    window.addEventListener("resize", updateWidth);
-    return () => window.removeEventListener("resize", updateWidth);
+    updateWidth();
+    window.addEventListener("resize", handleResize);
+    
+    return () => {
+      clearTimeout(resizeTimer);
+      window.removeEventListener("resize", handleResize);
+    };
   }, []);
+
+  // 加载状态
+  if (!buttonWidth) {
+    return (
+      <div className="w-full h-10 bg-surface-secondary/50 rounded-md animate-pulse" />
+    );
+  }
 
   useEffect(() => {
     // 生成 nonce
@@ -66,7 +84,7 @@ export default function GoogleLoginButton({ redirectTo = "/battle" }: GoogleLogi
   if (!ready || !hashedNonce || !loginUri) return null;
 
   return (
-    <div ref={containerRef} className="w-full">
+    <div ref={containerRef} className="w-full min-w-[200px]">
       <GoogleLogin
         nonce={hashedNonce}
         ux_mode="redirect"
