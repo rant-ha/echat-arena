@@ -1,6 +1,7 @@
 "use client";
 
 import useSWR from "swr";
+import Image from "next/image";
 import {
   Plus,
   MessageSquare,
@@ -216,9 +217,11 @@ export function Sidebar(props: SidebarProps) {
           title={userEmail || "Guest"}
         >
           {userAvatarUrl ? (
-            <img
+            <Image
               src={userAvatarUrl}
               alt=""
+              width={32}
+              height={32}
               referrerPolicy="no-referrer"
               className="h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-border-faint"
             />

@@ -152,7 +152,7 @@ export default function HistoryPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [t]);
 
   // Load drafts
   useEffect(() => {

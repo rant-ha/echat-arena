@@ -44,13 +44,6 @@ export default function GoogleLoginButton({ redirectTo = "/battle" }: GoogleLogi
     };
   }, []);
 
-  // 加载状态
-  if (!buttonWidth) {
-    return (
-      <div className="w-full h-10 bg-surface-secondary/50 rounded-md animate-pulse" />
-    );
-  }
-
   useEffect(() => {
     // 生成 nonce
     const rawNonce = btoa(
@@ -80,6 +73,13 @@ export default function GoogleLoginButton({ redirectTo = "/battle" }: GoogleLogi
       })
       .catch(() => setError("安全初始化失败，请刷新页面重试"));
   }, [redirectTo]);
+
+  // 加载状态 - 显示骨架屏
+  if (!buttonWidth) {
+    return (
+      <div className="w-full h-10 bg-surface-secondary/50 rounded-md animate-pulse" />
+    );
+  }
 
   if (!ready || !hashedNonce || !loginUri) return null;
 
