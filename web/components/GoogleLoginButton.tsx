@@ -21,13 +21,10 @@ export default function GoogleLoginButton({ redirectTo = "/battle" }: GoogleLogi
     let resizeTimer: NodeJS.Timeout;
 
     const updateWidth = () => {
-      if (containerRef.current) {
-        const width = containerRef.current.offsetWidth;
-        // Google 按钮宽度自适应容器
-        // 在桌面端最大 400px，在手机端占满容器
-        const maxWidth = window.innerWidth < 640 ? width : Math.min(width, 400);
-        setButtonWidth(maxWidth);
-      }
+      const width = containerRef.current?.offsetWidth ?? 0;
+      if (width <= 0) return;
+      const maxWidth = window.innerWidth < 640 ? width : Math.min(width, 400);
+      setButtonWidth(maxWidth);
     };
 
     const handleResize = () => {
@@ -74,29 +71,24 @@ export default function GoogleLoginButton({ redirectTo = "/battle" }: GoogleLogi
       .catch(() => setError("安全初始化失败，请刷新页面重试"));
   }, [redirectTo]);
 
-  // 加载状态 - 显示骨架屏
-  if (!buttonWidth) {
-    return (
-      <div className="w-full h-10 bg-surface-secondary/50 rounded-md animate-pulse" />
-    );
-  }
-
-  if (!ready || !hashedNonce || !loginUri) return null;
-
   return (
     <div ref={containerRef} className="w-full min-w-[200px]">
-      <GoogleLogin
-        nonce={hashedNonce}
-        ux_mode="redirect"
-        login_uri={loginUri}
-        onSuccess={() => {}}
-        onError={() => setError("Google 登录失败")}
-        use_fedcm_for_prompt
-        width={buttonWidth}
-        text="signin_with"
-        shape="rectangular"
-        theme="filled_black"
-      />
+      {!buttonWidth || !ready || !hashedNonce || !loginUri ? (
+        <div className="h-10 w-full rounded-md border border-border-faint bg-surface-secondary/60 animate-pulse" />
+      ) : (
+        <GoogleLogin
+          nonce={hashedNonce}
+          ux_mode="redirect"
+          login_uri={loginUri}
+          onSuccess={() => {}}
+          onError={() => setError("Google 登录失败")}
+          use_fedcm_for_prompt
+          width={buttonWidth}
+          text="signin_with"
+          shape="rectangular"
+          theme="filled_black"
+        />
+      )}
       {error && <ErrorText>{error}</ErrorText>}
     </div>
   );
