@@ -26,6 +26,7 @@ import { useAdminAuth } from "@/hooks/useAdminAuth";
 import { Card, Button } from "@/components/ui";
 import { cn } from "@/components/ui";
 import { useI18n } from "@/utils/i18n-context";
+import { TOOLTIP_STYLE, ACCENT, GREEN, YELLOW, RED, BLUE, PIE_COLORS } from "@/utils/chart-constants";
 
 // ---------- types ----------
 
@@ -100,23 +101,6 @@ type Period = "1d" | "7d" | "30d" | "all";
 const DAY_LABELS_ZH = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const DAY_LABELS_EN = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-const TOOLTIP_STYLE = {
-  contentStyle: {
-    background: "var(--color-surface-secondary, #1a1a2e)",
-    border: "1px solid var(--color-border-faint, #333)",
-    borderRadius: "8px",
-    color: "#e5e7eb",
-  },
-  cursor: { fill: "rgba(99,102,241,0.08)" },
-};
-
-const ACCENT = "#6366f1";
-const GREEN = "#22c55e";
-const YELLOW = "#eab308";
-const RED = "#ef4444";
-const BLUE = "#3b82f6";
-
-const PIE_COLORS = [BLUE, GREEN, YELLOW, RED];
 
 // ---------- component ----------
 

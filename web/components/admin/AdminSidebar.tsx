@@ -14,6 +14,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Globe,
+  Trophy,
+  TrendingUp,
 } from "lucide-react";
 import { cn } from "@/components/ui";
 import { useI18n } from "@/utils/i18n-context";
@@ -29,6 +31,8 @@ const navItems: NavItem[] = [
   { href: "/admin/users", labelKey: "admin.nav.users", icon: Users },
   { href: "/admin/models", labelKey: "admin.nav.models", icon: Bot },
   { href: "/admin/statistics", labelKey: "admin.nav.statistics", icon: BarChart3 },
+  { href: "/admin/leaderboard", labelKey: "admin.nav.leaderboard", icon: Trophy },
+  { href: "/admin/analytics", labelKey: "admin.nav.analytics", icon: TrendingUp },
   { href: "/admin/conversations", labelKey: "admin.nav.conversations", icon: MessagesSquare },
   { href: "/admin/sessions", labelKey: "admin.nav.sessions", icon: MessageSquare },
 ];
