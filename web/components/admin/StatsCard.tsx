@@ -41,26 +41,29 @@ export function StatsCard({
           <Icon className="h-5 w-5 text-interactive-accent" />
         </div>
       </div>
-      <div className="mt-3">
-        <p className={cn("text-3xl font-semibold", accent ?? "text-text-primary")}>
-          {typeof value === "number" ? value.toLocaleString() : value}
-        </p>
-        {description && (
-          <p className="mt-1 text-sm text-text-muted">{description}</p>
+      <p
+        className={cn(
+          "mt-3 text-3xl font-semibold",
+          accent ?? "text-text-primary"
         )}
-        {trend && (
-          <div
-            className={cn(
-              "mt-2 flex items-center gap-1 text-sm",
-              trend.isPositive ? "text-positive" : "text-negative"
-            )}
-          >
-            <span>{trend.isPositive ? "\u2191" : "\u2193"}</span>
-            <span>{Math.abs(trend.value)}%</span>
-            <span className="text-text-muted">{t("statscard.vs_prev")}</span>
-          </div>
-        )}
-      </div>
+      >
+        {typeof value === "number" ? value.toLocaleString() : value}
+      </p>
+      {description && (
+        <p className="mt-1 text-sm text-text-muted">{description}</p>
+      )}
+      {trend && (
+        <div
+          className={cn(
+            "mt-2 flex items-center gap-1 text-sm",
+            trend.isPositive ? "text-positive" : "text-negative"
+          )}
+        >
+          <span>{trend.isPositive ? "\u2191" : "\u2193"}</span>
+          <span>{Math.abs(trend.value)}%</span>
+          <span className="text-text-muted">{t("statscard.vs_prev")}</span>
+        </div>
+      )}
     </div>
   );
 }

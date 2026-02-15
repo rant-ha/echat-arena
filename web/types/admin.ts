@@ -9,6 +9,7 @@ export interface LeaderboardEntry {
   losses: number;
   ties: number;
   total_battles: number;
+  computed_at?: string;
 }
 
 export interface LeaderboardStatistics {
