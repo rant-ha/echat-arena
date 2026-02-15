@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-02-10 -->
+<!-- Generated: 2026-02-10 | Updated: 2026-02-15 -->
 
 # web/ - Next.js 14 Frontend
 
@@ -24,9 +24,10 @@ Next.js 14 frontend for eChat Arena, a dual-model A/B testing platform for empat
 | Directory | Purpose |
 |-----------|---------|
 | `app/` | Next.js 14 App Router; pages, layouts, API routes (see `app/AGENTS.md`) |
-| `components/` | Reusable React components for chat, voting, markdown rendering (see `components/AGENTS.md`) |
+| `components/` | Reusable React components for chat, voting, markdown rendering, admin (see `components/AGENTS.md`) |
 | `hooks/` | Custom React hooks: `useBattleStream`, `useAdminAuth` (see `hooks/AGENTS.md`) |
-| `utils/` | Utility modules: Supabase client/server factories (see `utils/AGENTS.md`) |
+| `types/` | Shared TypeScript type definitions for admin pages (see `types/AGENTS.md`) |
+| `utils/` | Utility modules: Supabase clients, i18n, chart constants (see `utils/AGENTS.md`) |
 
 ## For AI Agents
 

@@ -1,10 +1,10 @@
 # arena/ — FastAPI Application Package
 
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-02-10 -->
+<!-- Generated: 2026-02-10 | Updated: 2026-02-15 -->
 
 ## Purpose
-Core dual-model A/B testing engine. Orchestrates multi-turn conversations, emotion classification, AI-powered evaluation, vote storage, and post-vote chat continuation. Modularized from monolithic app.py into 36 Python modules across logical subdirectories: routes (7 public endpoints + 5 admin routes), services (battle, chat, reconstruction), db (Supabase queries), session (in-memory and Supabase stores), plus config, models, LLM, classifier, and evaluator.
+Core dual-model A/B testing engine. Orchestrates multi-turn conversations, emotion classification, AI-powered evaluation, vote storage, post-vote chat continuation, and strategy ranking. Modularized from monolithic app.py into ~40 Python modules across logical subdirectories: routes (7 public endpoints + 7 admin routes), services (battle, chat, reconstruction, ranking), db (Supabase queries, rankings), session (in-memory, Supabase, and hybrid stores), tools (web search), plus config, models, LLM, classifier, and evaluator.
 
 ## Dependency DAG (Import Order)
 ```
@@ -56,10 +56,11 @@ main            -- FastAPI app factory, router assembly, startup hooks
 ## Subdirectories
 | Directory | Purpose |
 |-----------|---------|
-| `routes/` | 7 public API routes + 5 admin routes (see routes/AGENTS.md) |
-| `db/` | Supabase helpers, vote operations, post-vote turns (see db/AGENTS.md) |
-| `services/` | Business logic: battle SSE, post-vote chat, session reconstruction (see services/AGENTS.md) |
-| `session/` | Session stores: in-memory and Supabase (see session/AGENTS.md) |
+| `routes/` | 7 public API routes + 7 admin routes (see routes/AGENTS.md) |
+| `db/` | Supabase helpers, vote operations, post-vote turns, rankings (see db/AGENTS.md) |
+| `services/` | Business logic: battle SSE, post-vote chat, session reconstruction, ranking (see services/AGENTS.md) |
+| `session/` | Session stores: in-memory, Supabase, and hybrid (see session/AGENTS.md) |
+| `tools/` | External tool integrations: web search (see tools/AGENTS.md) |
 
 ## For AI Agents
 

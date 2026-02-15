@@ -1,10 +1,10 @@
 # arena/services/ — Business Logic and Streaming
 
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-02-10 -->
+<!-- Generated: 2026-02-10 | Updated: 2026-02-15 -->
 
 ## Purpose
-High-level service functions for multi-turn battles, post-vote chat, and session reconstruction. Handles dual-model A/B streaming (left/right SSE), emotion classification coordination, post-vote turn storage, and conversation history reconstruction from vote records.
+High-level service functions for multi-turn battles, post-vote chat, session reconstruction, and strategy ranking computation. Handles dual-model A/B streaming (left/right SSE), emotion classification coordination, post-vote turn storage, conversation history reconstruction from vote records, and Elo-like rating with statistical significance analysis.
 
 ## Key Files
 | File | Description |
@@ -13,6 +13,7 @@ High-level service functions for multi-turn battles, post-vote chat, and session
 | `battle.py` | A/B battle SSE streaming: dual-stream generator, queue coordination, emotion classification, token counting |
 | `chat.py` | Post-vote chat SSE streaming: context building, winner model continuation, post-vote turn storage |
 | `reconstruction.py` | Session reconstruction: rebuild conversation history from vote records and post-vote turns |
+| `ranking.py` | Elo-like strategy rating (simplified Bradley-Terry via logistic function) + statistical significance (p-value via normal approximation, Cohen's h effect size, Wilson confidence interval). Pure math — no scipy, no DB, no async. Python 3.9 compatible |
 
 ## For AI Agents
 

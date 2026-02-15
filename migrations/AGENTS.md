@@ -3,7 +3,7 @@
 **Parent:** `../AGENTS.md`
 **Type:** SQL Migration Scripts (PostgreSQL/Supabase)
 **Version:** Phase 9.1
-**Last Updated:** 2026-01-23
+**Last Updated:** 2026-02-15
 
 ---
 
@@ -40,6 +40,7 @@ migrations/
 | 8.2 | `add_post_vote_chat.sql` | Post-vote chat continuation | Active |
 | 8.3 | `add_vote_idempotency.sql` | Prevent duplicate votes | Active |
 | 9.1 | `add_arena_sessions_table.sql` | Persistent session storage | Active |
+| 10 | `add_leaderboard_tables.sql` | Strategy rankings + ranking history (Elo-like ratings, daily snapshots, RLS, indexes) | **Pending** |
 
 ---
 
@@ -727,7 +728,7 @@ TO '/tmp/votes_backup.csv' WITH CSV HEADER;
 ## Version & Updates
 
 **Version:** Phase 9.1
-**Last Updated:** 2026-01-23
+**Last Updated:** 2026-02-15
 **Parent Guide:** `../AGENTS.md`
 
 **Recent Changes:**

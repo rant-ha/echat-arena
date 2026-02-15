@@ -1,6 +1,6 @@
 # eChat Arena — Root
 
-<!-- Generated: 2026-02-10 -->
+<!-- Generated: 2026-02-10 | Updated: 2026-02-15 -->
 
 ## Purpose
 eChat Arena is a dual-model A/B testing platform for evaluating emotional support AI strategies. Backend is a Python FastAPI application (arena/ package), frontend is Next.js 14 deployed separately. Dual-deployment architecture: Heroku (backend) + Vercel (frontend) + Supabase (database). Users chat with two anonymous models simultaneously, vote on the better response, and optionally continue chatting with the winner.
@@ -18,8 +18,12 @@ eChat Arena is a dual-model A/B testing platform for evaluating emotional suppor
 ## Subdirectories
 | Directory | Purpose |
 |-----------|---------|
-| `arena/` | Main FastAPI application package (36 Python modules) |
-| `web/` | Next.js 14 frontend (separate deployment) |
+| `arena/` | Main FastAPI application package (~40 Python modules) (see `arena/AGENTS.md`) |
+| `web/` | Next.js 14 frontend (separate deployment) (see `web/AGENTS.md`) |
+| `docs/` | Project documentation: analyses, guides, plans, reviews (see `docs/AGENTS.md`) |
+| `migrations/` | SQL migration scripts for Supabase PostgreSQL (see `migrations/AGENTS.md`) |
+| `tests/` | Python test suite: ranking unit tests, API smoke tests (see `tests/AGENTS.md`) |
+| `scripts/` | Utility scripts (DB migration helpers) |
 
 ## For AI Agents
 

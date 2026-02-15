@@ -1,20 +1,22 @@
 # arena/routes/admin/ — Protected Admin Endpoints
 
 <!-- Parent: ../../AGENTS.md -->
-<!-- Generated: 2026-02-10 -->
+<!-- Generated: 2026-02-10 | Updated: 2026-02-15 -->
 
 ## Purpose
-JWT-protected admin API routes for managing models, users, and arena operations. Includes authentication (JWT token generation), model lifecycle (list, activate, deactivate), user data management (export, delete), metrics/stats (vote counts, battle statistics), and archive triggers (manual CSV export to Google Drive).
+Admin-token-protected admin API routes for managing models, users, and arena operations. Includes authentication (admin-token header validation), model lifecycle (list, activate, deactivate), user data management (export, delete, UUID validation), metrics/stats (vote counts, battle statistics, detailed analytics), archive triggers (manual CSV export), conversation viewer (paginated list, search, CSV export with DDE protection), and strategy leaderboard (Elo-like ranking, statistical significance, manual recompute).
 
 ## Key Files
 | File | Description |
 |------|-------------|
 | `__init__.py` | Module marker (empty) |
-| `auth.py` | POST /admin/auth/login — generate JWT token with admin password |
+| `auth.py` | POST /admin/auth/login — generate JWT token with admin password; `_require_admin_token()` guard used by all admin routes |
 | `models.py` | GET/POST /admin/models/{id} — list, activate, deactivate models |
-| `users.py` | GET/DELETE /admin/users/{user_id} — export/delete user data |
-| `stats.py` | GET /admin/stats/votes, /admin/stats/battles — retrieve metrics |
+| `users.py` | GET/DELETE /admin/users/{user_id} — export/delete user data (UUID validation on all 4 path params) |
+| `stats.py` | GET /admin/stats/votes, /admin/statistics, /admin/statistics/detailed — vote metrics, dashboard stats, detailed analytics with daily activity, model performance, user funnel. `_fetch_all_votes()` shared with leaderboard (50k limit) |
 | `archive.py` | POST /admin/archive/trigger — manually trigger CSV export to Drive |
+| `leaderboard.py` | GET /admin/leaderboard — strategy rankings with Elo ratings + statistical significance (p-value, effect size, Wilson CI). POST /admin/rankings/compute — recompute and persist rankings to DB |
+| `conversations.py` | GET /admin/conversations — paginated conversation list with search/filter (PostgREST injection-safe). GET /admin/conversations/export — full CSV export with DDE protection (10k row limit) |
 
 ## For AI Agents
 

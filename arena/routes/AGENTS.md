@@ -1,7 +1,7 @@
 # arena/routes/ — Public and Admin API Endpoints
 
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-02-10 -->
+<!-- Generated: 2026-02-10 | Updated: 2026-02-15 -->
 
 ## Purpose
 FastAPI routers for user-facing and admin-facing endpoints. User routes: battle (A/B conversation), vote (submit evaluation), chat (post-vote continuation), drafts (template browsing), sessions (session query), config (model list). Admin routes: auth (JWT login), models (list/activate models), users (manage user data), stats (arena metrics), archive (trigger CSV export).
@@ -21,7 +21,7 @@ FastAPI routers for user-facing and admin-facing endpoints. User routes: battle 
 ## Subdirectories
 | Directory | Purpose |
 |-----------|---------|
-| `admin/` | Protected admin routes (JWT required) |
+| `admin/` | Protected admin routes (admin-token header required): models, users, stats, archive, leaderboard, conversations (see admin/AGENTS.md) |
 
 ## For AI Agents
 

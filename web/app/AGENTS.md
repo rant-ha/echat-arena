@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-02-10 -->
+<!-- Generated: 2026-02-10 | Updated: 2026-02-15 -->
 
 # web/app/ - Pages, Layouts & API Routes
 
@@ -25,26 +25,36 @@ Next.js 14 App Router directory containing all user-facing pages, auth routes, a
 | `auth/verify/page.tsx` | Email verification callback |
 | `auth/error/page.tsx` | Auth error display page |
 | `admin/page.tsx` | Admin dashboard home |
+| `admin/layout.tsx` | Admin layout with sidebar, auth guard, I18nProvider |
 | `admin/login/page.tsx` | Admin login (separate from user auth) |
 | `admin/models/page.tsx` | List all AI models |
 | `admin/models/new/page.tsx` | Create new model config |
 | `admin/models/[id]/page.tsx` | Edit existing model |
 | `admin/users/page.tsx` | List all users |
 | `admin/sessions/page.tsx` | List all battle sessions |
-| `admin/statistics/page.tsx` | Dashboard stats and charts |
+| `admin/statistics/page.tsx` | Dashboard stats and charts (recharts) |
+| `admin/conversations/page.tsx` | Conversation viewer with search, filter, CSV export |
+| `admin/leaderboard/page.tsx` | Strategy ranking with Elo ratings, statistical significance |
+| `admin/analytics/page.tsx` | Combined analytics dashboard (leaderboard + detailed stats) |
+| `error.tsx` | Global error boundary page |
+| `not-found.tsx` | 404 page |
+| `providers.tsx` | Client providers wrapper (I18nProvider) |
 | `api/proxy/[...path]/route.ts` | Catch-all proxy handler; forwards all methods to `ARENA_API_BASE` |
 
 ## Subdirectories
 
 | Directory | Purpose |
 |-----------|---------|
-| `admin/` | Admin dashboard: models CRUD, user management, session analytics |
+| `admin/` | Admin dashboard: models CRUD, user management, session analytics, conversations, leaderboard, analytics (see `admin/AGENTS.md`) |
 | `admin/login/` | Admin authentication (separate from user auth) |
 | `admin/models/` | Model CRUD pages: list, new, edit |
 | `admin/users/` | User management page |
 | `admin/sessions/` | Battle session analytics page |
-| `admin/statistics/` | Overall platform statistics |
-| `auth/` | Auth callback routes: verify email, error display |
+| `admin/statistics/` | Overall platform statistics with recharts |
+| `admin/conversations/` | Conversation viewer with search, filter, Markdown, CSV export |
+| `admin/leaderboard/` | Strategy ranking table with Elo ratings and statistical significance |
+| `admin/analytics/` | Combined analytics dashboard (leaderboard + detailed stats) |
+| `auth/` | Auth callback routes: OAuth, email verify, Google redirect, error (see `auth/AGENTS.md`) |
 | `battle/` | Battle page client component |
 | `chat/[id]/` | Post-vote chat continuation |
 | `draft/[session_id]/` | Draft conversation resume |

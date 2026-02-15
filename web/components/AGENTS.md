@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-02-10 -->
+<!-- Generated: 2026-02-10 | Updated: 2026-02-15 -->
 
 # web/components/ - Reusable React Components
 
@@ -25,14 +25,15 @@ Reusable client-side React components for eChat Arena UI. All use `"use client"`
 | `ThinkingIndicator.tsx` | Animated loading spinner for thinking/processing states |
 | `TurnstileCaptcha.tsx` | Cloudflare Turnstile CAPTCHA widget wrapper |
 | `ui.tsx` | Utility module: `cn()` class merger, base Button/Card primitives |
-| `admin/AdminSidebar.tsx` | Admin navigation sidebar |
-| `admin/StatsCard.tsx` | Reusable stats display card |
+| `Skeleton.tsx` | Loading placeholders: `SkeletonCard` and `SkeletonTable` components for data fetching states |
+| `admin/AdminSidebar.tsx` | Admin navigation sidebar with 9 nav items, i18n support |
+| `admin/StatsCard.tsx` | Reusable stats display card with icon, value, trend, accent color |
 
 ## Subdirectories
 
 | Directory | Purpose |
 |-----------|---------|
-| `admin/` | Admin-specific components: sidebar, stats cards, tables (reused across admin pages) |
+| `admin/` | Admin-specific components: sidebar (9 nav items with i18n), stats cards (icon + value + trend + accent), reused across all admin pages (see `admin/AGENTS.md`) |
 
 ## For AI Agents
 

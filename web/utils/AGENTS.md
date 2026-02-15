@@ -1,11 +1,11 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-02-10 -->
+<!-- Generated: 2026-02-10 | Updated: 2026-02-15 -->
 
 # web/utils/ - Utility Functions & Service Clients
 
 ## Purpose
 
-Utility functions and service clients providing shared functionality across the eChat Arena frontend. Includes Supabase authentication clients for both browser and server environments with session management via cookies.
+Utility functions and service clients providing shared functionality across the eChat Arena frontend. Includes Supabase authentication clients, internationalization (i18n) system with 221 translation keys in Chinese/English, and shared chart constants for admin dashboards.
 
 ---
 
@@ -14,6 +14,9 @@ Utility functions and service clients providing shared functionality across the 
 ```
 utils/
 ├── AGENTS.md
+├── i18n.ts              # 221 translation keys (zh + en), t() function
+├── i18n-context.tsx     # React Context + localStorage for language switching
+├── chart-constants.ts   # Shared chart colors, tooltip styles, confidence level helpers
 └── supabase/
     ├── client.ts       # Browser Supabase client (anonymous key)
     └── server.ts       # Server Supabase client (session via cookies)
@@ -23,6 +26,9 @@ utils/
 
 | File | Description |
 |------|-------------|
+| `i18n.ts` | Translation dictionary with 221 keys in Chinese (zh) and English (en). Exports `t(key, locale)` function. Covers admin dashboard, leaderboard, analytics, conversations, and common UI strings |
+| `i18n-context.tsx` | React Context provider for i18n. `useI18n()` hook returns `{ t, locale, setLocale }`. Persists language choice in localStorage. Exported via `I18nProvider` |
+| `chart-constants.ts` | Shared constants for recharts: `TOOLTIP_STYLE`, `ACCENT`, `GREEN`, `YELLOW`, `RED`, `BLUE`, `PIE_COLORS`, `CONFIDENCE_COLORS`, `confidenceLabelKey()` helper |
 | `supabase/client.ts` | Browser Supabase client factory using anonymous key; enforces RLS policies |
 | `supabase/server.ts` | Server Supabase client factory; manages session via Next.js cookies |
 

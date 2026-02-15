@@ -1,7 +1,7 @@
 # arena/db/ — Supabase Database Layer
 
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-02-10 -->
+<!-- Generated: 2026-02-10 | Updated: 2026-02-15 -->
 
 ## Purpose
 Async Supabase (PostgreSQL via REST API) operations for vote lifecycle and post-vote chat persistence. Handles vote insertion/update/patching, session-based vote lookup, and post-vote turn storage. Includes retry logic, error detection (unique violations), and JSON deserialization helpers.
@@ -13,6 +13,7 @@ Async Supabase (PostgreSQL via REST API) operations for vote lifecycle and post-
 | `helpers.py` | Utility functions: unique violation detection, JSON parsing |
 | `votes.py` | Vote CRUD: insert, update, patch, fetch by session_id, fetch all votes |
 | `post_vote.py` | Post-vote turn operations: insert and fetch turns after voting |
+| `rankings.py` | Strategy ranking CRUD: upsert strategy_rankings, upsert ranking_history (daily snapshots), fetch rankings, fetch history by date range. Uses PostgREST `Prefer: resolution=merge-duplicates` for upserts |
 
 ## For AI Agents
 

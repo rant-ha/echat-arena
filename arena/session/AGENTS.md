@@ -1,10 +1,10 @@
 # arena/session/ — Session Storage Backends
 
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-02-10 -->
+<!-- Generated: 2026-02-10 | Updated: 2026-02-15 -->
 
 ## Purpose
-Pluggable session store abstraction for managing user conversation state. Two implementations: in-memory (fast, single-dyno) and Supabase (persistent, multi-dyno). Stores session metadata (user_id, model IDs, timestamps) and conversation history (messages list).
+Pluggable session store abstraction for managing user conversation state. Three implementations: in-memory (fast, single-dyno), Supabase (persistent, multi-dyno), and HybridSessionStore (Redis L1 cache + Supabase L2 fallback). The HybridStore proxies all methods including admin operations (list_sessions, get_session, soft_delete, restore) with L1 cache invalidation on writes.
 
 ## Key Files
 | File | Description |
