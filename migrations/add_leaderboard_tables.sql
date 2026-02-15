@@ -38,6 +38,10 @@ CREATE POLICY "service_role_all_strategy_rankings" ON strategy_rankings
 CREATE POLICY "service_role_all_ranking_history" ON ranking_history
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 
+-- Index for range queries on snapshot_date
+CREATE INDEX IF NOT EXISTS idx_ranking_history_snapshot_date
+  ON ranking_history(snapshot_date);
+
 -- Seed data
 INSERT INTO strategy_rankings (strategy_name, rating, uncertainty)
 VALUES ('baseline', 1000.0, 350.0), ('empathy', 1000.0, 350.0)

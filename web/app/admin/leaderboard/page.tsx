@@ -66,7 +66,7 @@ export default function LeaderboardPage() {
   const handleRecompute = async () => {
     setComputing(true);
     const token = getToken();
-    if (!token) return;
+    if (!token) { setComputing(false); return; }
     try {
       const res = await fetch("/api/proxy/api/arena/admin/rankings/compute", {
         method: "POST",

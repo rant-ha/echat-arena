@@ -106,7 +106,7 @@ async def get_leaderboard(
 
     except Exception as exc:
         log_error("get_leaderboard_error", {}, exc)
-        return _error(f"Failed to get leaderboard: {str(exc)}", status=500)
+        return _error("Failed to get leaderboard", status=500)
 
 
 @router.post(f"{API_PREFIX}/admin/rankings/compute")
@@ -159,4 +159,4 @@ async def compute_and_persist_rankings(
 
     except Exception as exc:
         log_error("compute_rankings_error", {}, exc)
-        return _error(f"Failed to compute rankings: {str(exc)}", status=500)
+        return _error("Failed to compute rankings", status=500)
